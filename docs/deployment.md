@@ -9,7 +9,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The stack includes four services: `postgres`, `redis`, `backend`, and `frontend`. You'll need your own reverse proxy for HTTPS - see [Reverse Proxy Options](#reverse-proxy-options) below.
+The stack includes five services: `postgres`, `redis`, `backend`, `frontend`, and `gateway`. The gateway sends API and WebSocket traffic to the backend and other requests to the frontend. You'll need a reverse proxy for HTTPS - see [Reverse Proxy Options](#reverse-proxy-options) below.
 
 ---
 
@@ -173,17 +173,16 @@ The backend depends on both `postgres` and `redis` being healthy before starting
 
 ## Reverse Proxy Options
 
-Neither the backend nor the frontend exposes host ports in docker-compose.yml. You need a reverse proxy to route external traffic. Two options:
+The gateway does not expose a host port in docker-compose.yml. You need a reverse proxy to route external traffic to gateway port 80. Two options:
 
 ### Option A: External Reverse Proxy (Nginx / Traefik / Caddy / HAProxy)
 
 If you already have a reverse proxy on the host, point it at the containers. The key routing rules:
 
-- `/api/*` (including `/api/ws`) -> backend on port 8080
-- Everything else -> frontend on port 3000
-- WebSocket upgrade must be supported for `/api/ws`
+- All traffic -> gateway on port 80. Its Caddy configuration routes `/api/*` (including `/api/ws`) to the backend on port 8080 and everything else to the frontend on port 3000.
+- WebSocket upgrade must be supported for `/api/ws`.
 
-You will need to expose ports on the backend and frontend services (add `ports:` sections) or attach them to the same Docker network as your proxy.
+Expose gateway port 80 to the external reverse proxy, or attach the proxy to the same Docker network as the gateway.
 
 ### Option B: Coolify
 
@@ -213,8 +212,9 @@ In Advanced Settings, **deselect** "Strip Prefixes".
 
 | Service | Domain |
 |---------|--------|
-| backend | *(leave blank -- proxied through frontend)* |
-| frontend | `mail.yourdomain.com` |
+| backend | *(leave blank -- proxied through gateway)* |
+| frontend | *(leave blank -- proxied through gateway)* |
+| gateway | `https://mail.yourdomain.com` |
 
 Point your DNS at the Coolify server. Coolify handles TLS automatically.
 
@@ -234,7 +234,7 @@ POSTGRES_PASSWORD=<openssl rand -hex 16>
 
 1. Set env vars in Coolify
 2. Click Deploy
-3. Coolify builds both Docker images, starts postgres + redis, then backend + frontend
+3. Coolify builds the three Docker images, starts postgres + redis, then backend + frontend + gateway
 4. First deploy takes longer (building Go binary + Next.js standalone output)
 
 ### 5. Post-Deploy Setup
