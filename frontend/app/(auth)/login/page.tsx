@@ -69,11 +69,9 @@ function LoginForm() {
 
   useEffect(() => {
     api
-      .get<{ commercial: boolean }>("/api/setup/status")
+      .get<{ commercial: boolean; registration_enabled?: boolean }>("/api/setup/status")
       .then((res) => {
-        if (!res.commercial) {
-          setShowSignup(false);
-        }
+        setShowSignup(res.registration_enabled ?? res.commercial);
       })
       .catch(() => {
         // If status check fails, keep signup link visible
