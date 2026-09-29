@@ -169,3 +169,23 @@ func TestResendError_Error_Format(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, "resend: 422: validation error")
 	}
 }
+
+func TestResendInvalidAPIKeyClassification(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		body    string
+		invalid bool
+	}{
+		{400, `{"statusCode":400,"message":"API key is invalid","name":"validation_error"}`, true},
+		{401, `{}`, true},
+		{403, `{}`, true},
+		{400, `{"message":"Invalid domain name"}`, false},
+		{429, `{"message":"API key is invalid"}`, false},
+		{500, `{"message":"API key is invalid"}`, false},
+	} {
+		got := (&ResendError{StatusCode: tc.status, Body: tc.body}).IsInvalidAPIKey()
+		if got != tc.invalid {
+			t.Errorf("status=%d body=%s invalid=%v want %v", tc.status, tc.body, got, tc.invalid)
+		}
+	}
+}

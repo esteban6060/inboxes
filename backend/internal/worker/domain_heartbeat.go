@@ -184,9 +184,10 @@ func (dh *DomainHeartbeat) checkOrg(ctx context.Context, orgID string) {
 				"org_id", orgID, "status", resendErr.StatusCode)
 			return
 		}
-		// 401/403 = API key revoked or invalid. Mark all domains disconnected
+		// Authentication errors (including Resend's 400 invalid-key response).
+		// Mark all domains disconnected
 		// and record the key status so the UI can show it.
-		if ok := isResendErr(err, &resendErr); ok && (resendErr.StatusCode == 401 || resendErr.StatusCode == 403) {
+		if ok := isResendErr(err, &resendErr); ok && resendErr.IsInvalidAPIKey() {
 			dh.setAPIKeyStatus(ctx, orgID, "invalid")
 			tag, err := dh.DB.Exec(ctx,
 				`UPDATE domains SET status = 'disconnected', updated_at = now()

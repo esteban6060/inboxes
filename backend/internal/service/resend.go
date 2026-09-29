@@ -46,6 +46,15 @@ func (e *ResendError) IsRetryable() bool {
 	return e.StatusCode == 429 || e.StatusCode == 409 || e.StatusCode >= 500
 }
 
+// Resend also reports malformed/revoked keys as a 400 validation_error.
+// Other 400 responses must not disconnect otherwise healthy domains.
+func (e *ResendError) IsInvalidAPIKey() bool {
+	if e.StatusCode == 401 || e.StatusCode == 403 {
+		return true
+	}
+	return e.StatusCode == 400 && strings.EqualFold(strings.TrimSpace(e.Message()), "API key is invalid")
+}
+
 // Message extracts the human-readable message from the Resend error body.
 // Returns an empty string when the body has no message field.
 func (e *ResendError) Message() string {
