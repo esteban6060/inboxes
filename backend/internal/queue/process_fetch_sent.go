@@ -58,7 +58,7 @@ func (w *EmailWorker) processFetchSent(ctx context.Context, jobID, orgID, userID
 	// Idempotency: skip if we already have this email
 	var existingID string
 	if err := w.store.Q().QueryRow(ctx,
-		"SELECT id FROM emails WHERE resend_email_id = $1", resendEmailID,
+		"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", resendEmailID, orgID,
 	).Scan(&existingID); err == nil {
 		slog.Info("email worker: duplicate sent email, skipping", "resend_email_id", resendEmailID)
 		return nil

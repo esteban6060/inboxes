@@ -299,8 +299,12 @@ func (h *DomainHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		resendDomains[i] = store.ResendDomainInfo{ID: rd.ID, Name: rd.Name, Status: service.NormalizeDomainStatus(rd.Status)}
 	}
 
-	if err := h.Store.SyncDomains(r.Context(), claims.OrgID, resendDomains); err != nil {
+	if err := h.Store.WithTx(r.Context(), func(tx store.Store) error {
+		return tx.SyncDomains(r.Context(), claims.OrgID, resendDomains)
+	}); err != nil {
 		slog.Error("domain: sync failed", "org_id", claims.OrgID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to sync domains")
+		return
 	}
 
 	// Return full domain list (including hidden) so frontend can update without a second fetch
@@ -321,6 +325,15 @@ func (h *DomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// Look up the Resend domain id before the delete, so the domain can also
 	// be removed from Resend and does not come back as "Found in Resend".
 	resendDomainID, _ := h.Store.GetResendDomainID(ctx, domainID, claims.OrgID)
+	shared := false
+	if resendDomainID != "" {
+		var err error
+		shared, err = h.Store.IsResendDomainShared(ctx, claims.OrgID, resendDomainID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check domain ownership")
+			return
+		}
+	}
 
 	txErr := h.Store.WithTx(ctx, func(tx store.Store) error {
 		rows, err := tx.SoftDeleteDomain(ctx, domainID, claims.OrgID)
@@ -339,7 +352,7 @@ func (h *DomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Best-effort Resend delete. A failure only logs — the local delete holds.
-	if resendDomainID != "" {
+	if resendDomainID != "" && !shared {
 		if _, err := h.ResendSvc.Fetch(ctx, claims.OrgID, "DELETE", "/domains/"+resendDomainID, nil); err != nil {
 			slog.Error("domain: delete from Resend failed", "domain_id", domainID, "resend_domain_id", resendDomainID, "error", err)
 		}

@@ -30,8 +30,8 @@ func (s *PgStore) HasPendingSyncJob(ctx context.Context, orgID string) (bool, er
 func (s *PgStore) EmailExistsByResendID(ctx context.Context, orgID, resendEmailID string) (bool, error) {
 	var exists bool
 	err := s.q.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM emails WHERE resend_email_id = $1)",
-		resendEmailID,
+		"SELECT EXISTS(SELECT 1 FROM emails WHERE resend_email_id = $1 AND org_id = $2)",
+		resendEmailID, orgID,
 	).Scan(&exists)
 	return exists, err
 }
@@ -50,7 +50,7 @@ func (s *PgStore) CreateFetchJob(ctx context.Context, orgID, resendEmailID, jobT
 	err := s.q.QueryRow(ctx,
 		`INSERT INTO email_jobs (org_id, user_id, job_type, resend_email_id)
 		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
+		 ON CONFLICT (org_id, resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
 		 RETURNING id`,
 		orgID, adminUserID, jobType, resendEmailID,
 	).Scan(&jobID)

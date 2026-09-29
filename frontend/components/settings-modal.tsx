@@ -1012,6 +1012,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
       const data = await api.post<Domain[]>("/api/domains/sync");
       setAllDomains(data);
       setVisibleIds(new Set(data.filter((d) => !d.hidden).map((d) => d.id)));
+      await refreshDomains();
       setSuccess("Domains refreshed from Resend");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to refresh domains");
@@ -1650,10 +1651,22 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
     try {
       const payload: Record<string, unknown> = { name: orgName, resend_rps: orgResendRPS };
       if (orgResendKey && orgResendKey !== "********") {
-        payload.api_key = orgResendKey;
+        payload.api_key = orgResendKey.trim();
       }
       await api.patch("/api/orgs/settings", payload);
-      setSuccess("Organization settings updated");
+      // Rotation already synchronizes domains on the server. Refresh both the
+      // modal and sidebar, then clear the entered secret and reload its status.
+      if (payload.api_key) {
+        setOrgResendKey("********");
+        const data = await api.get<Domain[]>("/api/domains/all");
+        setAllDomains(data);
+        setVisibleIds(new Set(data.filter((d) => !d.hidden).map((d) => d.id)));
+        await refreshDomains();
+        await loadOrgSettings();
+        setSuccess("Resend API key updated and domains refreshed. Enable new domains in the Domains tab.");
+      } else {
+        setSuccess("Organization settings updated");
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to update");
     } finally {
@@ -3095,7 +3108,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                     <BouncesCard />
 
                     {/* Danger zone */}
-                    {user?.is_owner && (
+                    {user?.is_org_owner && (
                       <Card className="border-destructive">
                         <CardHeader>
                           <CardTitle className="text-destructive">Danger Zone</CardTitle>

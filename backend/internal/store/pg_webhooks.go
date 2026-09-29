@@ -37,7 +37,7 @@ func (s *PgStore) CheckWebhookDedup(ctx context.Context, orgID, resendEmailID, e
 
 func (s *PgStore) InsertWebhookDedup(ctx context.Context, orgID, resendEmailID, eventType string) error {
 	// This is handled by the idempotent INSERT in email_jobs with ON CONFLICT
-	// The handler uses this as a check — the actual dedup is via the unique index on resend_email_id
+	// The handler uses this as a check — the actual dedup is via the unique index on (org_id, resend_email_id)
 	return nil
 }
 

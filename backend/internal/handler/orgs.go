@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/inboxes/backend/internal/event"
 	"github.com/inboxes/backend/internal/middleware"
@@ -163,6 +165,28 @@ func (h *OrgHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.APIKey = strings.TrimSpace(req.APIKey)
+	var resendDomains []store.ResendDomainInfo
+	if req.APIKey != "" {
+		// Validate before writing any settings. Use this same response to refresh
+		// domains, so rotation cannot report success while leaving a stale list.
+		data, err := service.ResendDirectFetch(req.APIKey, "GET", "/domains", nil)
+		if err != nil {
+			writeResendError(w, err, "failed to validate Resend API key")
+			return
+		}
+		var list resendDomainList
+		if err := json.Unmarshal(data, &list); err != nil || list.Data == nil {
+			writeError(w, http.StatusBadGateway, "failed to parse Resend domains")
+			return
+		}
+		for _, d := range list.Data {
+			resendDomains = append(resendDomains, store.ResendDomainInfo{
+				ID: d.ID, Name: d.Name, Status: service.NormalizeDomainStatus(d.Status),
+			})
+		}
+	}
+
 	// Agent policy: the org-level switch that lets connected agents send.
 	if req.AgentSendEnabled != nil {
 		if _, err := h.Store.Q().Exec(r.Context(),
@@ -235,24 +259,23 @@ func (h *OrgHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.APIKey != "" {
-		// Validate the key against Resend before it is stored. A bad key
-		// would otherwise disconnect every domain on the next heartbeat.
-		if _, err := service.ResendDirectFetch(req.APIKey, "GET", "/domains", nil); err != nil {
-			slog.Warn("org: rejected invalid Resend API key", "org_id", claims.OrgID, "error", err)
-			writeError(w, http.StatusBadRequest, "Resend rejected this API key. Check that the key is a full-access key.")
-			return
-		}
 		ciphertext, iv, tag, err := h.EncSvc.Encrypt(req.APIKey)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to encrypt API key")
 			return
 		}
-		if err := h.Store.UpdateOrgAPIKey(r.Context(), claims.OrgID, ciphertext, iv, tag); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update API key")
+		if err := h.Store.WithTx(r.Context(), func(tx store.Store) error {
+			if err := tx.UpdateOrgAPIKey(r.Context(), claims.OrgID, ciphertext, iv, tag); err != nil {
+				return err
+			}
+			if err := tx.SetAPIKeyStatus(r.Context(), claims.OrgID, "valid"); err != nil {
+				return err
+			}
+			return tx.SyncDomains(r.Context(), claims.OrgID, resendDomains)
+		}); err != nil {
+			slog.Error("org: key/domain update failed", "org_id", claims.OrgID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to update API key and domains")
 			return
-		}
-		if err := h.Store.SetAPIKeyStatus(r.Context(), claims.OrgID, "valid"); err != nil {
-			slog.Error("org: failed to record api key status", "org_id", claims.OrgID, "error", err)
 		}
 		h.ResendSvc.InvalidateOrgKeyCache(claims.OrgID)
 	}

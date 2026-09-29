@@ -91,6 +91,7 @@ type MockStore struct {
 	ListDomainsFn            func(ctx context.Context, orgID string, includeHidden bool) ([]map[string]any, error)
 	InsertDomainFn           func(ctx context.Context, orgID, domain, resendDomainID, status string, dnsRecords json.RawMessage) (string, error)
 	GetResendDomainIDFn      func(ctx context.Context, domainID, orgID string) (string, error)
+	IsResendDomainSharedFn   func(ctx context.Context, orgID, resendDomainID string) (bool, error)
 	UpdateDomainStatusFn     func(ctx context.Context, domainID, status string, dnsRecords json.RawMessage) error
 	ReorderDomainsFn         func(ctx context.Context, orgID string, order []DomainOrder) error
 	GetUnreadCountsFn        func(ctx context.Context, orgID string, role string, aliasAddrs []string) (map[string]int, error)
@@ -1620,4 +1621,11 @@ func (m *MockStore) GetLabelCounts(ctx context.Context, orgID, domainID, userID,
 		return m.GetLabelCountsFn(ctx, orgID, domainID, userID, role, aliasAddrs)
 	}
 	return map[string]any{}, nil
+}
+
+func (m *MockStore) IsResendDomainShared(ctx context.Context, orgID, resendDomainID string) (bool, error) {
+	if m.IsResendDomainSharedFn != nil {
+		return m.IsResendDomainSharedFn(ctx, orgID, resendDomainID)
+	}
+	return false, nil
 }

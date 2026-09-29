@@ -12,11 +12,11 @@ func (s *PgStore) ListDomains(ctx context.Context, orgID string, includeHidden b
 	if includeHidden {
 		query = `SELECT id, org_id, domain, resend_domain_id, status,
 				display_order, dns_records, hidden, created_at
-		 FROM domains WHERE org_id = $1 ORDER BY display_order, created_at`
+		 FROM domains WHERE org_id = $1 AND status != 'deleted' ORDER BY display_order, created_at`
 	} else {
 		query = `SELECT id, org_id, domain, resend_domain_id, status,
 				display_order, dns_records, created_at
-		 FROM domains WHERE org_id = $1 AND hidden = false ORDER BY display_order, created_at`
+		 FROM domains WHERE org_id = $1 AND hidden = false AND status != 'deleted' ORDER BY display_order, created_at`
 	}
 	rows, err := s.q.Query(ctx, query, orgID)
 	if err != nil {
@@ -41,6 +41,16 @@ func (s *PgStore) GetResendDomainID(ctx context.Context, domainID, orgID string)
 		`SELECT resend_domain_id FROM domains WHERE id = $1 AND org_id = $2`,
 		domainID, orgID).Scan(&resendID)
 	return resendID, err
+}
+
+func (s *PgStore) IsResendDomainShared(ctx context.Context, orgID, resendDomainID string) (bool, error) {
+	var shared bool
+	err := s.q.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM domains d JOIN orgs o ON o.id = d.org_id
+		 WHERE d.org_id != $1 AND d.resend_domain_id = $2
+		 AND d.status != 'deleted' AND o.deleted_at IS NULL)`,
+		orgID, resendDomainID).Scan(&shared)
+	return shared, err
 }
 
 func (s *PgStore) UpdateDomainStatus(ctx context.Context, domainID, status string, dnsRecords json.RawMessage) error {
@@ -123,9 +133,9 @@ func (s *PgStore) SyncDomains(ctx context.Context, orgID string, resendDomains [
 		if _, err := s.q.Exec(ctx,
 			`INSERT INTO domains (org_id, domain, resend_domain_id, status, hidden)
 			 VALUES ($1, $2, $3, $4, true)
-			 ON CONFLICT (domain) WHERE status NOT IN ('deleted') DO UPDATE SET status = EXCLUDED.status, updated_at = now()`,
+			 ON CONFLICT (org_id, domain) WHERE status NOT IN ('deleted') DO UPDATE SET resend_domain_id = EXCLUDED.resend_domain_id, status = EXCLUDED.status, updated_at = now()`,
 			orgID, rd.Name, rd.ID, rd.Status); err != nil {
-			slog.Error("domain: sync upsert failed", "domain", rd.Name, "error", err)
+			return fmt.Errorf("sync domain %s: %w", rd.Name, err)
 		}
 	}
 
@@ -135,15 +145,25 @@ func (s *PgStore) SyncDomains(ctx context.Context, orgID string, resendDomains [
 		return err
 	}
 	defer localRows.Close()
+	type localDomain struct{ id, domain, status string }
+	var locals []localDomain
 	for localRows.Next() {
-		var localID, localDomain, localStatus string
-		if localRows.Scan(&localID, &localDomain, &localStatus) == nil {
-			if !resendDomainNames[localDomain] && localStatus != "disconnected" {
-				if _, err := s.q.Exec(ctx,
-					`UPDATE domains SET status = 'disconnected', updated_at = now() WHERE id = $1`,
-					localID); err != nil {
-					slog.Error("domain: disconnect update failed", "domain_id", localID, "error", err)
-				}
+		var d localDomain
+		if err := localRows.Scan(&d.id, &d.domain, &d.status); err != nil {
+			return err
+		}
+		locals = append(locals, d)
+	}
+	if err := localRows.Err(); err != nil {
+		return err
+	}
+	// A transaction uses one connection: consume/close rows before Exec.
+	localRows.Close()
+	for _, d := range locals {
+		if !resendDomainNames[d.domain] && d.status != "disconnected" {
+			if _, err := s.q.Exec(ctx,
+				`UPDATE domains SET status = 'disconnected', updated_at = now() WHERE id = $1`, d.id); err != nil {
+				return fmt.Errorf("disconnect domain %s: %w", d.id, err)
 			}
 		}
 	}

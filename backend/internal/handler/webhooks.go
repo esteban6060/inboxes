@@ -206,13 +206,13 @@ func (h *WebhookHandler) handleEmailReceived(ctx context.Context, orgID string, 
 		return
 	}
 
-	// Atomic idempotent INSERT — partial unique index on (resend_email_id) WHERE status IN ('pending','running')
+	// Atomic idempotent INSERT — partial unique index on (org_id, resend_email_id) WHERE status IN ('pending','running')
 	// prevents duplicate jobs without a check-then-insert race condition
 	var jobID string
 	if err := h.Store.Q().QueryRow(dbCtx,
 		`INSERT INTO email_jobs (org_id, user_id, job_type, resend_email_id, webhook_data)
 		 VALUES ($1, $2, 'fetch', $3, $4)
-		 ON CONFLICT (resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
+		 ON CONFLICT (org_id, resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
 		 RETURNING id`,
 		orgID, adminUserID, emailData.EmailID, webhookDataJSON,
 	).Scan(&jobID); err != nil {
@@ -279,7 +279,7 @@ func (h *WebhookHandler) handleEmailStatusWithRetry(ctx context.Context, orgID, 
 		}
 
 		// Use Redis INCR as a retry counter with 5-min TTL
-		retryKey := fmt.Sprintf("webhook:status:retry:%s", statusData.EmailID)
+		retryKey := fmt.Sprintf("webhook:status:retry:%s:%s", orgID, statusData.EmailID)
 		count, err := h.RDB.Incr(ctx, retryKey).Result()
 		if err != nil {
 			slog.Error("webhook: redis retry counter failed", "error", err)
@@ -310,8 +310,8 @@ func (h *WebhookHandler) handleEmailStatusWithRetry(ctx context.Context, orgID, 
 	var threadID, domainID string
 	var emailSubject string
 	warnIfErr(h.Store.Q().QueryRow(dbCtx,
-		"SELECT thread_id, domain_id, subject FROM emails WHERE resend_email_id = $1",
-		statusData.EmailID,
+		"SELECT thread_id, domain_id, subject FROM emails WHERE resend_email_id = $1 AND org_id = $2",
+		statusData.EmailID, orgID,
 	).Scan(&threadID, &domainID, &emailSubject), "webhook: failed to look up thread/domain for event", "resend_email_id", statusData.EmailID)
 
 	slog.Info("webhook: status update", "resend_email_id", statusData.EmailID, "status", status)
@@ -359,8 +359,8 @@ func (h *WebhookHandler) recordBounce(ctx context.Context, orgID string, data js
 	// Look up recipient addresses from the email
 	var toJSON, ccJSON, bccJSON json.RawMessage
 	if err := h.Store.Q().QueryRow(dbCtx,
-		`SELECT to_addresses, cc_addresses, bcc_addresses FROM emails WHERE resend_email_id = $1`,
-		statusData.EmailID,
+		`SELECT to_addresses, cc_addresses, bcc_addresses FROM emails WHERE resend_email_id = $1 AND org_id = $2`,
+		statusData.EmailID, orgID,
 	).Scan(&toJSON, &ccJSON, &bccJSON); err != nil {
 		slog.Warn("webhook: recordBounce email not found", "resend_email_id", statusData.EmailID)
 		return

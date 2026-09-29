@@ -151,6 +151,7 @@ type DomainStore interface {
 	ListDomains(ctx context.Context, orgID string, includeHidden bool) ([]map[string]any, error)
 	InsertDomain(ctx context.Context, orgID, domain, resendDomainID, status string, dnsRecords json.RawMessage) (string, error)
 	GetResendDomainID(ctx context.Context, domainID, orgID string) (string, error)
+	IsResendDomainShared(ctx context.Context, orgID, resendDomainID string) (bool, error)
 	UpdateDomainStatus(ctx context.Context, domainID, status string, dnsRecords json.RawMessage) error
 	ReorderDomains(ctx context.Context, orgID string, order []DomainOrder) error
 	GetUnreadCounts(ctx context.Context, orgID string, role string, aliasAddrs []string) (map[string]int, error)

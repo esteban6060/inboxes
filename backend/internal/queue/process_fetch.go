@@ -52,7 +52,7 @@ func (w *EmailWorker) processFetch(ctx context.Context, jobID, orgID, userID str
 	// Idempotency: skip if we already have this email
 	var existingID string
 	if err := w.store.Q().QueryRow(ctx,
-		"SELECT id FROM emails WHERE resend_email_id = $1", resendEmailID,
+		"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", resendEmailID, orgID,
 	).Scan(&existingID); err == nil {
 		slog.Info("email worker: duplicate email, skipping", "resend_email_id", resendEmailID)
 		return nil
@@ -624,10 +624,10 @@ func (w *EmailWorker) downloadAndStoreAttachment(ctx context.Context, orgID, use
 	// MIME-check same blocklist as upload path
 	detected := http.DetectContentType(data)
 	blockedTypes := map[string]bool{
-		"application/x-executable":     true,
-		"application/x-msdos-program":  true,
-		"application/x-msdownload":     true,
-		"application/x-dosexec":        true,
+		"application/x-executable":                      true,
+		"application/x-msdos-program":                   true,
+		"application/x-msdownload":                      true,
+		"application/x-dosexec":                         true,
 		"application/vnd.microsoft.portable-executable": true,
 	}
 	if blockedTypes[detected] {
@@ -697,4 +697,3 @@ func (w *EmailWorker) fetchThreadForEvent(ctx context.Context, threadID, orgID s
 	}
 	return t
 }
-

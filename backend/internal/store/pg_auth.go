@@ -57,8 +57,8 @@ func (s *PgStore) CreateOrgAndAdmin(ctx context.Context, orgName, email, name, p
 
 	var userID string
 	err = s.q.QueryRow(ctx,
-		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner)
-		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', $6, $7) RETURNING id`,
+		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner, is_org_owner)
+		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', $6, $7, true) RETURNING id`,
 		accountID, orgID, email, name, passwordHash, emailVerified, isOwner,
 	).Scan(&userID)
 	if err != nil {
@@ -91,8 +91,8 @@ func (s *PgStore) CreateOrgForAccount(ctx context.Context, orgName, email string
 
 	var userID string
 	if err := s.q.QueryRow(ctx,
-		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner)
-		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, false) RETURNING id`,
+		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner, is_org_owner)
+		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, false, true) RETURNING id`,
 		accountID, orgID, email, name, passwordHash,
 	).Scan(&userID); err != nil {
 		return "", "", fmt.Errorf("create workspace membership: %w", err)
@@ -126,8 +126,8 @@ func (s *PgStore) CreateWorkspaceForUser(ctx context.Context, userID, orgName st
 
 	var newUserID string
 	if err := s.q.QueryRow(ctx,
-		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner)
-		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, false) RETURNING id`,
+		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner, is_org_owner)
+		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, false, true) RETURNING id`,
 		accountID, orgID, email, name, passwordHash,
 	).Scan(&newUserID); err != nil {
 		return "", "", fmt.Errorf("create workspace membership: %w", err)

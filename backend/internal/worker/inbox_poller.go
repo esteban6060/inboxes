@@ -225,7 +225,7 @@ func (p *InboxPoller) pollOrg(ctx context.Context, orgID string) {
 			// Already in DB?
 			var existingID string
 			if err := p.Store.Q().QueryRow(ctx,
-				"SELECT id FROM emails WHERE resend_email_id = $1", email.ID,
+				"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", email.ID, orgID,
 			).Scan(&existingID); err == nil {
 				hitKnown = true
 				continue
@@ -234,7 +234,7 @@ func (p *InboxPoller) pollOrg(ctx context.Context, orgID string) {
 			// Already queued?
 			var existingJobID string
 			if err := p.Store.Q().QueryRow(ctx,
-				"SELECT id FROM email_jobs WHERE resend_email_id = $1 AND status IN ('pending', 'running')", email.ID,
+				"SELECT id FROM email_jobs WHERE resend_email_id = $1 AND org_id = $2 AND status IN ('pending', 'running')", email.ID, orgID,
 			).Scan(&existingJobID); err == nil {
 				continue
 			}
@@ -262,7 +262,7 @@ func (p *InboxPoller) pollOrg(ctx context.Context, orgID string) {
 			if err := p.Store.Q().QueryRow(ctx,
 				`INSERT INTO email_jobs (org_id, user_id, job_type, resend_email_id, webhook_data)
 				 VALUES ($1, $2, 'fetch', $3, $4)
-				 ON CONFLICT (resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
+				 ON CONFLICT (org_id, resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
 				 RETURNING id`,
 				orgID, adminUserID, email.ID, webhookDataJSON,
 			).Scan(&jobID); err != nil {
@@ -372,7 +372,7 @@ func (p *InboxPoller) pollOrgSent(ctx context.Context, orgID string) {
 			// Already in DB?
 			var existingID string
 			if err := p.Store.Q().QueryRow(ctx,
-				"SELECT id FROM emails WHERE resend_email_id = $1", email.ID,
+				"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", email.ID, orgID,
 			).Scan(&existingID); err == nil {
 				hitKnown = true
 				continue
@@ -381,7 +381,7 @@ func (p *InboxPoller) pollOrgSent(ctx context.Context, orgID string) {
 			// Already queued?
 			var existingJobID string
 			if err := p.Store.Q().QueryRow(ctx,
-				"SELECT id FROM email_jobs WHERE resend_email_id = $1 AND status IN ('pending', 'running')", email.ID,
+				"SELECT id FROM email_jobs WHERE resend_email_id = $1 AND org_id = $2 AND status IN ('pending', 'running')", email.ID, orgID,
 			).Scan(&existingJobID); err == nil {
 				continue
 			}
@@ -407,7 +407,7 @@ func (p *InboxPoller) pollOrgSent(ctx context.Context, orgID string) {
 			if err := p.Store.Q().QueryRow(ctx,
 				`INSERT INTO email_jobs (org_id, user_id, job_type, resend_email_id, webhook_data)
 				 VALUES ($1, $2, 'fetch_sent', $3, $4)
-				 ON CONFLICT (resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
+				 ON CONFLICT (org_id, resend_email_id) WHERE status IN ('pending', 'running') DO NOTHING
 				 RETURNING id`,
 				orgID, adminUserID, email.ID, sentDataJSON,
 			).Scan(&jobID); err != nil {

@@ -53,7 +53,7 @@ func (s *PgStore) UpsertDomain(ctx context.Context, orgID, domain, resendDomainI
 	err := s.q.QueryRow(ctx,
 		`INSERT INTO domains (org_id, domain, resend_domain_id, status, dns_records, display_order)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (domain) WHERE status NOT IN ('deleted') DO UPDATE SET resend_domain_id = $3, status = $4, dns_records = $5, updated_at = now()
+		 ON CONFLICT (org_id, domain) WHERE status NOT IN ('deleted') DO UPDATE SET resend_domain_id = $3, status = $4, dns_records = $5, updated_at = now()
 		 RETURNING id`,
 		orgID, domain, resendDomainID, status, records, order,
 	).Scan(&domainID)

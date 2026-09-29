@@ -389,7 +389,7 @@ func (s *SyncService) syncEmailsInternal(ctx context.Context, orgID, adminUserID
 
 		var existingID string
 		err := s.pool.QueryRow(ctx,
-			"SELECT id FROM emails WHERE resend_email_id = $1", email.ID,
+			"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", email.ID, orgID,
 		).Scan(&existingID)
 		if err == nil {
 			imported++
@@ -630,7 +630,7 @@ func (s *SyncService) syncEmailsInternal(ctx context.Context, orgID, adminUserID
 
 		var existingID string
 		err := s.pool.QueryRow(ctx,
-			"SELECT id FROM emails WHERE resend_email_id = $1", email.ID,
+			"SELECT id FROM emails WHERE resend_email_id = $1 AND org_id = $2", email.ID, orgID,
 		).Scan(&existingID)
 		if err == nil {
 			imported++

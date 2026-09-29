@@ -49,3 +49,19 @@ existing non-placeholder user and links that user's existing membership. User
 IDs and tenant data remain intact. The migration stops if existing emails
 collide when compared case-insensitively, so an operator can resolve ambiguous
 identities before deployment instead of merging them automatically.
+
+## Resend resources and ownership
+
+Domain records, imported email IDs, and pending fetch jobs are unique within a
+workspace. Connecting credentials for the same Resend account in two workspaces
+creates separate local records and never updates the other workspace's domains.
+A shared provider domain stays in Resend when one workspace removes its copy.
+
+Saving a new Resend API key validates it and refreshes the workspace's domain
+list in one transaction. Existing visibility choices are preserved; newly found
+domains can be enabled in **Settings > Domains**. The sidebar refreshes after a
+key change or manual domain refresh.
+
+Workspace creators own their organization (`is_org_owner`). This permits deleting
+their own workspace without granting the instance-wide system/cron privileges
+controlled by `is_owner`.

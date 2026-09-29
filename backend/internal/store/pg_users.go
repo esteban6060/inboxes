@@ -206,21 +206,21 @@ func (s *PgStore) ReassignAndDisable(ctx context.Context, orgID, adminID, source
 func (s *PgStore) GetMe(ctx context.Context, userID string) (map[string]any, error) {
 	var id, orgID, email, name, role, status, signatureHTML string
 	var createdAt time.Time
-	var isOwner, hasWebhook bool
+	var isOwner, isOrgOwner, hasWebhook bool
 	var undoSendSeconds int
 	err := s.q.QueryRow(ctx,
-		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.status, u.created_at, u.is_owner, u.signature_html, u.undo_send_seconds,
+		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.status, u.created_at, u.is_owner, u.is_org_owner, u.signature_html, u.undo_send_seconds,
 		        (o.resend_webhook_id IS NOT NULL AND o.resend_webhook_id != '') AS has_webhook
 		 FROM users u
 		 JOIN orgs o ON o.id = u.org_id
 		 WHERE u.id = $1`,
-		userID).Scan(&id, &orgID, &email, &name, &role, &status, &createdAt, &isOwner, &signatureHTML, &undoSendSeconds, &hasWebhook)
+		userID).Scan(&id, &orgID, &email, &name, &role, &status, &createdAt, &isOwner, &isOrgOwner, &signatureHTML, &undoSendSeconds, &hasWebhook)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"id": id, "org_id": orgID, "email": email, "name": name, "role": role,
-		"status": status, "created_at": createdAt, "is_owner": isOwner,
+		"status": status, "created_at": createdAt, "is_owner": isOwner, "is_org_owner": isOrgOwner,
 		"has_webhook": hasWebhook, "signature_html": signatureHTML,
 		"undo_send_seconds": undoSendSeconds,
 	}, nil

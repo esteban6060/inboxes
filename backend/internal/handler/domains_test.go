@@ -217,3 +217,22 @@ func TestDomainUpdateVisibility_Success(t *testing.T) {
 		t.Error("UpdateVisibility: store.UpdateDomainVisibility was not called")
 	}
 }
+
+func TestDomainDeletePreservesSharedResendDomain(t *testing.T) {
+	h := &DomainHandler{Store: &store.MockStore{
+		GetResendDomainIDFn:    func(context.Context, string, string) (string, error) { return "shared-provider", nil },
+		IsResendDomainSharedFn: func(ctx context.Context, org, id string) (bool, error) { return true, nil },
+		SoftDeleteDomainFn:     func(context.Context, string, string) (int64, error) { return 1, nil },
+	}}
+	req := withClaims(httptest.NewRequest("DELETE", "/domains/d1", nil), "user1", "org1", "admin")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "d1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.Delete(w, req)
+	// ResendSvc is intentionally nil: a provider DELETE would panic and break
+	// the other workspace. The local detach should still complete.
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("shared domain deletion failed: %d", w.Code)
+	}
+}

@@ -788,4 +788,28 @@ describe("SettingsModal", () => {
       }));
     });
   });
+  it("key rotation refreshes domains, clears the secret, and shows the new key status", async () => {
+    let settingsReads = 0;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/orgs/settings") {
+        settingsReads++;
+        return Promise.resolve({ name: "Test Org", has_api_key: true, resend_rps: 2, api_key_status: settingsReads === 1 ? "invalid" : "valid" });
+      }
+      if (url === "/api/domains/discovered") return Promise.resolve([]);
+      return defaultApiGetImpl(url);
+    });
+    render(<SettingsModal {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Organization/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("tab", { name: /Organization/ }));
+    await waitFor(() => expect(screen.getByText("Key invalid")).toBeInTheDocument());
+    const key = screen.getByPlaceholderText("re_...");
+    fireEvent.change(key, { target: { value: "  re_replacement  " } });
+    fireEvent.submit(key.closest("form")!);
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith("/api/orgs/settings", expect.objectContaining({ api_key: "re_replacement" })));
+    await waitFor(() => expect(screen.getByText("Key OK")).toBeInTheDocument());
+    expect(screen.getByPlaceholderText("re_...")).toHaveValue("********");
+    expect(screen.getByText(/API key updated and domains refreshed/)).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith("/api/domains/all");
+  });
+
 });

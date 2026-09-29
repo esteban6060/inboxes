@@ -30,8 +30,8 @@ func (s *PgStore) CreateAdminSetup(ctx context.Context, orgName, email, name, pa
 	// Create admin membership with is_owner = true.
 	var userID string
 	if err := s.q.QueryRow(ctx,
-		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner)
-		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, true)
+		`INSERT INTO users (account_id, org_id, email, name, password_hash, role, status, email_verified, is_owner, is_org_owner)
+		 VALUES ($1, $2, $3, $4, $5, 'admin', 'active', true, true, true)
 		 RETURNING id`,
 		accountID, orgID, email, name, passwordHash,
 	).Scan(&userID); err != nil {

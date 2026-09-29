@@ -94,7 +94,7 @@ func (s *PgStore) UpdateOrgAutoPollInterval(ctx context.Context, orgID string, i
 func (s *PgStore) IsOrgOwner(ctx context.Context, userID, orgID string) (bool, error) {
 	var isOwner bool
 	err := s.q.QueryRow(ctx,
-		`SELECT is_owner FROM users WHERE id = $1 AND org_id = $2`,
+		`SELECT is_org_owner FROM users WHERE id = $1 AND org_id = $2`,
 		userID, orgID).Scan(&isOwner)
 	if err != nil {
 		return false, err
