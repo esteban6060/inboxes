@@ -138,6 +138,8 @@ vi.mock("lucide-react", () => {
     Minus: icon("minus"),
     RefreshCw: icon("refresh"),
     User: icon("user"),
+    UserRound: icon("user-round"),
+    Camera: icon("camera"),
     Globe: icon("globe"),
     CreditCard: icon("credit-card"),
     Users: icon("users"),

@@ -21,6 +21,7 @@ interface SendResult {
 }
 import { TipTapEditor } from "@/components/tiptap-editor";
 import { RecipientInput } from "@/components/recipient-input";
+import { AliasAvatar } from "@/components/alias-photo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -90,6 +91,7 @@ function htmlToPlain(html: string): string {
 }
 
 interface MyAlias {
+  avatar_url?: string;
   id: string;
   address: string;
   name: string;
@@ -155,12 +157,19 @@ export function FloatingComposeWindow() {
   // Fetch aliases when compose opens
   useEffect(() => {
     if (composeState !== "open" || !activeDomain) return;
-    api.get<MyAlias[]>("/api/users/me/aliases").then((data) => {
+    let active = true;
+    const loadAliases = () => api.get<MyAlias[]>("/api/users/me/aliases").then((data) => {
       const domainAliases = data.filter(
         (a) => a.domain_id === activeDomain.id && a.can_send_as
       );
-      setAliases(domainAliases);
-    }).catch(() => { toast.error("Failed to load aliases"); });
+      if (active) setAliases(domainAliases);
+    }).catch(() => { if (active) toast.error("Failed to load aliases"); });
+    void loadAliases();
+    window.addEventListener("alias-photo-updated", loadAliases);
+    return () => {
+      active = false;
+      window.removeEventListener("alias-photo-updated", loadAliases);
+    };
   }, [composeState, activeDomain]);
 
   // Pick best default from address
@@ -290,6 +299,7 @@ export function FloatingComposeWindow() {
   }, [composeState]);
 
   const effectiveFrom = fromAddress || `hello@${activeDomain?.domain || "example.com"}`;
+  const senderPhoto = aliases.find((alias) => alias.address === effectiveFrom)?.avatar_url;
 
   const BLOCKED_EXTENSIONS = new Set([
     ".exe", ".bat", ".scr", ".com", ".msi", ".cmd", ".ps1", ".sh", ".vbs", ".js", ".wsh", ".wsf",
@@ -833,6 +843,7 @@ export function FloatingComposeWindow() {
           )}
           <div className="flex items-center gap-2 border-b pb-1">
             <label className="text-xs text-muted-foreground w-10 text-right shrink-0">From</label>
+            <AliasAvatar url={senderPhoto} address={effectiveFrom} className="h-6 w-6" />
             {aliases.length > 1 ? (
               <select
                 value={fromAddress}
@@ -989,6 +1000,7 @@ export function FloatingComposeWindow() {
           )}
           <div className="flex items-center gap-2 px-3 border-b min-h-[36px]">
             <label className="text-xs text-muted-foreground w-10 text-right shrink-0">From</label>
+            <AliasAvatar url={senderPhoto} address={effectiveFrom} className="h-6 w-6" />
             {aliases.length > 1 ? (
               <select
                 value={fromAddress}

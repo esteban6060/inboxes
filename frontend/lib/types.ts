@@ -109,6 +109,7 @@ export interface Attachment {
 }
 
 export interface Alias {
+  avatar_url?: string;
   id: string;
   org_id: string;
   domain_id: string;

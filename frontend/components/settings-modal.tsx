@@ -28,6 +28,7 @@ import { cn, validatePassword } from "@/lib/utils";
 import type { User, Domain, BillingInfo } from "@/lib/types";
 import { Bot, Check, ChevronDown, ChevronUp, Forward, Minus, RefreshCw, User as UserIcon, Globe, CreditCard, Users, AtSign, Trash2, RotateCw, UserX, UserPlus, X, Star, Pencil, Wrench, Building2, Tag } from "lucide-react";
 import { AgentsTab } from "@/components/settings-agents-tab";
+import { AliasPhoto } from "@/components/alias-photo";
 
 export type Tab = "profile" | "domains" | "team" | "aliases" | "labels" | "rules" | "agents" | "organization" | "billing" | "system" | "jobs";
 
@@ -55,6 +56,7 @@ interface AliasUser {
 }
 
 interface AliasWithUsers {
+  avatar_url?: string;
   id: string;
   domain_id: string;
   address: string;
@@ -881,7 +883,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
   const [editingLabelName, setEditingLabelName] = useState("");
 
   // Non-admin alias view state
-  const [myAliases, setMyAliases] = useState<{ id: string; address: string; name: string; domain_id: string; can_send_as: boolean; is_default: boolean }[]>([]);
+  const [myAliases, setMyAliases] = useState<{ id: string; address: string; name: string; domain_id: string; can_send_as: boolean; is_default: boolean; avatar_url?: string }[]>([]);
   const [myAliasesLoading, setMyAliasesLoading] = useState(false);
 
   // Organization settings state
@@ -1605,7 +1607,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
   async function loadMyAliases() {
     setMyAliasesLoading(true);
     try {
-      const data = await api.get<{ id: string; address: string; name: string; domain_id: string; can_send_as: boolean; is_default: boolean }[]>("/api/users/me/aliases");
+      const data = await api.get<typeof myAliases>("/api/users/me/aliases");
       setMyAliases(data);
     } catch {
       // handled
@@ -2516,7 +2518,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                     <Card>
                       <CardHeader>
                         <CardTitle>My Aliases</CardTitle>
-                        <CardDescription>Email aliases assigned to your account</CardDescription>
+                        <CardDescription>Email aliases assigned to your account. Profile photos are public and included inside outgoing emails; inbox avatars depend on the recipient&apos;s email service.</CardDescription>
                       </CardHeader>
                       <CardContent>
                         {myAliasesLoading ? (
@@ -2528,15 +2530,21 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                         ) : (
                           <div className="divide-y">
                             {myAliases.map((a) => (
-                              <div key={a.id} className="flex items-center justify-between py-3">
-                                <div className="space-y-0.5">
-                                  <span className="text-sm font-medium">{a.address}</span>
-                                  {a.name && <p className="text-xs text-muted-foreground">{a.name}</p>}
+                              <div key={a.id} className="space-y-3 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="space-y-0.5">
+                                    <span className="text-sm font-medium">{a.address}</span>
+                                    {a.name && <p className="text-xs text-muted-foreground">{a.name}</p>}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {a.is_default && <Badge variant="default" className="text-xs">Default</Badge>}
+                                    {a.can_send_as && <Badge variant="secondary" className="text-xs">Can send</Badge>}
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  {a.is_default && <Badge variant="default" className="text-xs">Default</Badge>}
-                                  {a.can_send_as && <Badge variant="secondary" className="text-xs">Can send</Badge>}
-                                </div>
+                                <AliasPhoto alias={a} editable={a.can_send_as} onChange={(url) => {
+                                  setMyAliases((current) => current.map((item) => item.id === a.id ? { ...item, avatar_url: url } : item));
+                                  setSuccess(url ? "Profile photo saved" : "Profile photo removed");
+                                }} />
                               </div>
                             ))}
                           </div>
@@ -2638,7 +2646,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                     <Card>
                       <CardHeader>
                         <CardTitle>Aliases</CardTitle>
-                        <CardDescription>{aliases.length} alias{aliases.length !== 1 ? "es" : ""}</CardDescription>
+                        <CardDescription>{aliases.length} alias{aliases.length !== 1 ? "es" : ""}. Profile photos are public and included inside outgoing emails; inbox avatars depend on the recipient&apos;s email service.</CardDescription>
                       </CardHeader>
                       <CardContent>
                         {aliasLoading ? (
@@ -2739,6 +2747,10 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                                               </Button>
                                             </div>
                                           </div>
+                                          <AliasPhoto alias={alias} onChange={(url) => {
+                                            setAliases((current) => current.map((item) => item.id === alias.id ? { ...item, avatar_url: url } : item));
+                                            setSuccess(url ? "Profile photo saved" : "Profile photo removed");
+                                          }} />
                                           {/* Expanded user list */}
                                           {expandedAlias === alias.id && (
                                             <div className="border-t pt-2 space-y-2">

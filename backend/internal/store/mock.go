@@ -16,6 +16,10 @@ var _ Store = (*MockStore)(nil)
 // MockStore implements Store for testing. Set function fields per test.
 // Each method delegates to its Fn field if non-nil, otherwise returns safe zero values.
 type MockStore struct {
+	CanManageAliasPhotoFn func(ctx context.Context, aliasID, orgID, userID, role string) (bool, error)
+	SetAliasPhotoFn       func(ctx context.Context, aliasID, orgID, userID, role string, data []byte, version *string) (int64, error)
+	GetPublicAliasPhotoFn func(ctx context.Context, aliasID, version string) ([]byte, error)
+	GetSenderAliasPhotoFn func(ctx context.Context, orgID, address string) (*AliasPhoto, error)
 	// ---- Pool / Q / Tx ----
 	PoolFn       func() *pgxpool.Pool
 	QFn          func() Querier

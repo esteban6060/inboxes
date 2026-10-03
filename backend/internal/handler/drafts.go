@@ -19,6 +19,7 @@ import (
 )
 
 type DraftHandler struct {
+	AppURL    string
 	Store     store.Store
 	ResendSvc *service.ResendService
 	Bus       *event.Bus
@@ -387,6 +388,11 @@ func (h *DraftHandler) Send(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	bodyHTML, err = service.AddSenderPhoto(ctx, h.Store, claims.OrgID, fromAddr, h.AppURL, bodyHTML, bodyPlain, resendPayload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sender photo")
+		return
+	}
 	resendPayloadJSON, ok := marshalOrFail(w, resendPayload, "failed to prepare email")
 	if !ok {
 		return

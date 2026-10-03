@@ -134,6 +134,10 @@ func (w *EmailWorker) applyForwardingRules(ctx context.Context, in inboundRuleIn
 			"reply_to": in.fromAddr,
 			"headers":  map[string]string{"Auto-Submitted": "auto-forwarded"},
 		}
+		if _, err := service.AddSenderPhoto(ctx, w.store, in.orgID, f.aliasAddr, "", body, "", payload); err != nil {
+			slog.Error("inbound rules: forward photo lookup failed", "rule_id", f.ruleID, "error", err)
+			continue
+		}
 		if _, err := w.resendSvc.Fetch(ctx, in.orgID, "POST", "/emails", payload); err != nil {
 			slog.Error("inbound rules: forward send failed", "rule_id", f.ruleID, "target", f.target, "error", err)
 			continue
@@ -212,6 +216,10 @@ func (w *EmailWorker) applyAutoReplies(ctx context.Context, in inboundRuleInput,
 			"subject": subject,
 			"html":    bodyHTML,
 			"headers": map[string]string{"Auto-Submitted": "auto-replied"},
+		}
+		if _, err := service.AddSenderPhoto(ctx, w.store, in.orgID, r.aliasAddr, "", bodyHTML, r.bodyPlain, payload); err != nil {
+			slog.Error("inbound rules: auto-reply photo lookup failed", "rule_id", r.id, "error", err)
+			continue
 		}
 		if _, err := w.resendSvc.Fetch(ctx, in.orgID, "POST", "/emails", payload); err != nil {
 			slog.Error("inbound rules: auto-reply send failed", "rule_id", r.id, "to", fromClean, "error", err)

@@ -210,6 +210,10 @@ type UserStore interface {
 // ---- Aliases ----
 
 type AliasStore interface {
+	CanManageAliasPhoto(ctx context.Context, aliasID, orgID, userID, role string) (bool, error)
+	SetAliasPhoto(ctx context.Context, aliasID, orgID, userID, role string, data []byte, version *string) (int64, error)
+	GetPublicAliasPhoto(ctx context.Context, aliasID, version string) ([]byte, error)
+	GetSenderAliasPhoto(ctx context.Context, orgID, address string) (*AliasPhoto, error)
 	ListAliases(ctx context.Context, orgID, domainID string) ([]map[string]any, error)
 	CreateAlias(ctx context.Context, orgID, domainID, address, name string) (string, error)
 	UpdateAlias(ctx context.Context, aliasID, orgID, name string) (int64, error)

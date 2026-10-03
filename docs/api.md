@@ -951,3 +951,33 @@ Returns up to 10 suggestions based on previous email participants in the org.
 **GET /api/attachments/{id}**: Returns the binary file content with appropriate `Content-Type`, `Content-Disposition`, and `X-Content-Type-Options: nosniff` headers. Unsafe content types are served as `application/octet-stream`.
 
 Attachments are stored as BYTEA in PostgreSQL.
+
+## Alias profile photos
+
+`POST /api/aliases/{id}/photo` accepts a multipart `photo` field containing a
+square PNG or JPEG of at most 1024 × 1024 pixels and 3 MB. The Settings → Aliases
+editor accepts JPG, PNG and WebP, provides drag, zoom, rotation and keyboard
+position controls, and exports a 512 × 512 JPEG. The server validates and
+re-encodes the image before saving it in PostgreSQL, alongside the alias.
+
+Admins can manage any alias photo in their workspace. Members can manage photos
+only for aliases assigned to them with `can_send_as`.
+`DELETE /api/aliases/{id}/photo` removes the photo. Alias list responses include
+`avatar_url` (an empty string when there is no photo).
+
+`GET /api/public/alias-photos/{id}/{version}` serves the JPEG without login.
+Replacement/removal revokes the previous URL; deleted aliases, domains and
+workspaces are not served. Database backups include these photos; no separate
+upload volume is required.
+
+New sends, replies, forwards, automatic replies and sent/scheduled drafts include the selected
+alias's photo in a sender footer using a snapshot embedded as a CID attachment.
+The sent-message view uses the public image URL. Resend sends mail containing
+attachments individually because its batch API does not support attachments.
+
+The photo is visible inside the email where the recipient's client supports
+inline images. It does **not** automatically configure the avatar next to the
+sender in Gmail, Outlook or other inboxes. Those services control their avatars;
+brand logos through BIMI require a separate domain/DNS/certificate setup. See
+[Gmail BIMI requirements](https://knowledge.workspace.google.com/admin/security/set-up-bimi)
+and [Resend inline-image support](https://resend.com/changelog/embed-images-using-cid).

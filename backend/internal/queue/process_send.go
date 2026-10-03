@@ -65,12 +65,19 @@ func (w *EmailWorker) processSend(ctx context.Context, jobID, orgID, userID stri
 		retryCount: retryCount,
 		maxRetries: maxRetries,
 	}}
+	// Resend's batch endpoint does not support attachments, including inline
+	// profile photos. Send these individually and leave the other queued jobs
+	// available for the next worker iteration.
+	if sendPayloadHasAttachments(resendPayloadRaw) {
+		return w.sendSingle(ctx, apiKey, items[0], orgID)
+	}
 
 	// Batch collection: grab up to 99 more pending send jobs for same org
 	rows, err := w.store.Q().Query(ctx,
 		`SELECT id, email_id, thread_id, resend_payload, draft_id, user_id, retry_count, max_retries
 		 FROM email_jobs
 		 WHERE org_id = $1 AND status = 'pending' AND job_type = 'send' AND id != $2
+		 AND COALESCE(resend_payload->'attachments', '[]'::jsonb) = '[]'::jsonb
 		 ORDER BY created_at ASC
 		 LIMIT 99
 		 FOR UPDATE SKIP LOCKED`,
@@ -104,6 +111,14 @@ func (w *EmailWorker) processSend(ctx context.Context, jobID, orgID, userID stri
 	}
 
 	return w.sendBatch(ctx, apiKey, items, orgID)
+}
+
+func sendPayloadHasAttachments(raw json.RawMessage) bool {
+	var payload struct {
+		Attachments []json.RawMessage `json:"attachments"`
+	}
+	// Invalid payloads must go through sendSingle's error handling, never batch.
+	return json.Unmarshal(raw, &payload) != nil || len(payload.Attachments) > 0
 }
 
 func (w *EmailWorker) sendSingle(ctx context.Context, apiKey string, item sendItem, orgID string) error {

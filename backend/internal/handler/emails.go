@@ -20,6 +20,7 @@ import (
 )
 
 type EmailHandler struct {
+	AppURL    string
 	Store     store.Store
 	ResendSvc *service.ResendService
 	Bus       *event.Bus
@@ -186,6 +187,12 @@ func (h *EmailHandler) Send(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	storedHTML, err := service.AddSenderPhoto(ctx, h.Store, claims.OrgID, req.From, h.AppURL, req.HTML, req.Text, resendPayload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sender photo")
+		return
+	}
+	req.HTML = storedHTML
 	resendPayloadJSON, ok := marshalOrFail(w, resendPayload, "failed to prepare email")
 	if !ok {
 		return

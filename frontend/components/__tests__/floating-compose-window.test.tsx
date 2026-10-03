@@ -172,6 +172,7 @@ vi.mock("lucide-react", () => {
     Trash2: icon("trash"),
     Paperclip: icon("paperclip"),
     CalendarClock: icon("calendar-clock"),
+    UserRound: icon("user-round"),
   };
 });
 

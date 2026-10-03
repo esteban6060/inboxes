@@ -306,7 +306,9 @@ func (s *PgStore) UpdatePreferences(ctx context.Context, userID string, prefs ma
 
 func (s *PgStore) ListMyAliases(ctx context.Context, userID, orgID string) ([]map[string]any, error) {
 	rows, err := s.q.Query(ctx,
-		`SELECT a.id, a.address, a.name, a.domain_id, au.can_send_as, au.is_default
+		`SELECT a.id, a.address, a.name, a.domain_id, au.can_send_as, au.is_default,
+		 CASE WHEN a.photo_version IS NULL THEN '' ELSE
+		 '/api/public/alias-photos/' || a.id::text || '/' || a.photo_version::text END AS avatar_url
 		 FROM aliases a
 		 JOIN alias_users au ON au.alias_id = a.id
 		 WHERE au.user_id = $1 AND a.org_id = $2 AND a.deleted_at IS NULL

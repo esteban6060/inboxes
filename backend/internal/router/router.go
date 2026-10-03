@@ -59,7 +59,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 	auth := &handler.AuthHandler{Store: st, RDB: rdb, Secret: secret, AppURL: appURL, ResendSvc: resendSvc, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled}
 	setup := &handler.SetupHandler{Store: st, EncSvc: encSvc, ResendSvc: resendSvc, Secret: secret, AppURL: appURL, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled}
 	threads := &handler.ThreadHandler{Store: st, Bus: bus}
-	emails := &handler.EmailHandler{Store: st, ResendSvc: resendSvc, Bus: bus, RDB: rdb}
+	emails := &handler.EmailHandler{Store: st, ResendSvc: resendSvc, Bus: bus, RDB: rdb, AppURL: appURL}
 	webhooks := &handler.WebhookHandler{Store: st, Bus: bus, ResendSvc: resendSvc, RDB: rdb, EncSvc: encSvc, AppCtx: cfg.AppCtx}
 	onboarding := &handler.OnboardingHandler{Store: st, ResendSvc: resendSvc, EncSvc: encSvc, Bus: bus, PublicURL: cfg.PublicURL}
 	users := &handler.UserHandler{Store: st, RDB: rdb, Secret: secret, ResendSvc: resendSvc, AppURL: appURL}
@@ -67,7 +67,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 	domains := &handler.DomainHandler{Store: st, ResendSvc: resendSvc, EncSvc: encSvc, PublicURL: cfg.PublicURL}
 	contacts := &handler.ContactHandler{Store: st}
 	attachments := &handler.AttachmentHandler{Store: st}
-	drafts := &handler.DraftHandler{Store: st, ResendSvc: resendSvc, Bus: bus, RDB: rdb}
+	drafts := &handler.DraftHandler{Store: st, ResendSvc: resendSvc, Bus: bus, RDB: rdb, AppURL: appURL}
 	orgs := &handler.OrgHandler{Store: st, RDB: rdb, Secret: secret, EncSvc: encSvc, ResendSvc: resendSvc, Bus: bus, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled, LimiterMap: limiterMap, AppURL: appURL}
 	labels := &handler.LabelHandler{Store: st}
 	syncH := &handler.SyncHandler{Store: st, RDB: rdb}
@@ -87,6 +87,10 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 
 	oauth := &handler.OAuthHandler{Store: st, AppURL: appURL, PublicURL: cfg.PublicURL}
 	agentKeys := &handler.AgentKeyHandler{Store: st, Pool: db}
+
+	// Public photos are intentionally accessible without a session, but only
+	// while the alias, domain, workspace and photo version remain current.
+	r.With(middleware.RateLimitByIP(rdb, 120, 60)).Get("/api/public/alias-photos/{id}/{version}", aliases.PublicPhoto)
 
 	// OAuth discovery + endpoints for MCP clients (public, rate-limited)
 	r.With(middleware.RateLimitByIP(rdb, 60, 60)).Get("/.well-known/oauth-protected-resource", oauth.ProtectedResourceMetadata)
@@ -314,6 +318,8 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 			r.With(middleware.RequireAdmin).Post("/api/aliases/{id}/users", aliases.AddUser)
 			r.With(middleware.RequireAdmin).Delete("/api/aliases/{id}/users/{userId}", aliases.RemoveUser)
 			r.Patch("/api/aliases/{id}/default", aliases.SetDefault)
+			r.With(middleware.RateLimitByUser(rdb, 20, 60)).Post("/api/aliases/{id}/photo", aliases.UploadPhoto)
+			r.Delete("/api/aliases/{id}/photo", aliases.DeletePhoto)
 			r.Get("/api/aliases/discovered", aliases.DiscoveredAddresses)
 
 			// Drafts

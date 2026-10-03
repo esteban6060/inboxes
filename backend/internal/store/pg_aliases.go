@@ -7,7 +7,9 @@ import (
 )
 
 func (s *PgStore) ListAliases(ctx context.Context, orgID, domainID string) ([]map[string]any, error) {
-	query := `SELECT a.id, a.address, a.name, a.domain_id, a.created_at
+	query := `SELECT a.id, a.address, a.name, a.domain_id, a.created_at,
+	          CASE WHEN a.photo_version IS NULL THEN '' ELSE
+	          '/api/public/alias-photos/' || a.id::text || '/' || a.photo_version::text END AS avatar_url
 	          FROM aliases a WHERE a.org_id = $1 AND a.deleted_at IS NULL`
 	args := []any{orgID}
 
