@@ -434,6 +434,8 @@ export function FloatingComposeWindow() {
       setSaveStatus("error");
     }
   }, [activeDomain, to, cc, bcc, subject, effectiveFrom, bodyHtml, bodyPlain, attachments, composeData, refreshDrafts]);
+  const saveDraftRef = useRef(saveDraft);
+  saveDraftRef.current = saveDraft;
 
   // Register a save-now hook with the provider, so opening a reply over
   // this window saves the current content as a draft instead of losing it.
@@ -456,9 +458,9 @@ export function FloatingComposeWindow() {
       if (saveAbortRef.current) saveAbortRef.current.abort();
       const controller = new AbortController();
       saveAbortRef.current = controller;
-      saveDraft(controller.signal);
+      saveDraftRef.current(controller.signal);
     }, 3000);
-  }, [saveDraft]);
+  }, []);
 
   // Discard — delete draft and close without saving
   const handleDiscard = useCallback(async () => {
@@ -520,6 +522,10 @@ export function FloatingComposeWindow() {
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (uploading) {
+      setError("Wait for the image or file upload to finish");
+      return;
+    }
 
     if (to.length === 0) {
       setError("To is required");
@@ -671,6 +677,10 @@ export function FloatingComposeWindow() {
   async function handleScheduleSend(when: Date) {
     setScheduleMenuOpen(false);
     setError("");
+    if (uploading) {
+      setError("Wait for the image or file upload to finish");
+      return;
+    }
     if (to.length === 0) {
       setError("To is required");
       return;
@@ -723,7 +733,7 @@ export function FloatingComposeWindow() {
         <button
           type="button"
           onClick={() => setScheduleMenuOpen((v) => !v)}
-          disabled={sending}
+          disabled={sending || uploading}
           className="p-1.5 rounded hover:bg-muted text-muted-foreground disabled:opacity-50"
           title="Schedule send"
           aria-label="Schedule send"
@@ -867,7 +877,7 @@ export function FloatingComposeWindow() {
             {uploading ? <Spinner className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
           </button>
           {scheduleControl()}
-          <Button type="submit" size="sm" form="compose-form" disabled={sending}>
+          <Button type="submit" size="sm" form="compose-form" disabled={sending || uploading}>
             {sending ? <Spinner className="mr-1 h-3 w-3" /> : <Send className="mr-1 h-3 w-3" />}
             Send
           </Button>
@@ -1138,7 +1148,7 @@ export function FloatingComposeWindow() {
             }}
             toolbarLeft={
               <div className="flex items-center shrink-0">
-                <Button type="submit" size="sm" disabled={sending} className="mx-1 shrink-0">
+                <Button type="submit" size="sm" disabled={sending || uploading} className="mx-1 shrink-0">
                   {sending ? <Spinner className="mr-1 h-3 w-3" /> : <Send className="mr-1 h-3 w-3" />}
                   Send
                 </Button>

@@ -373,6 +373,22 @@ describe("FloatingComposeWindow", () => {
     expect(draftCalls.length).toBe(0);
   });
 
+  it("autosaves the latest editor content after the debounce", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<FloatingComposeWindow />);
+      fireEvent.change(screen.getAllByTestId("editor-textarea")[0], { target: { value: "Latest body" } });
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/drafts",
+        expect.objectContaining({ body_html: "Latest body", body_plain: "Latest body" }),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("Save status displays in title bar area", () => {
     // Verify the component has the structure for save status display
     render(<FloatingComposeWindow />);
