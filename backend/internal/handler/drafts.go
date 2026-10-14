@@ -381,11 +381,16 @@ func (h *DraftHandler) Send(w http.ResponseWriter, r *http.Request) {
 	// Attach files from draft's attachment_ids
 	var attachmentIDs []string
 	warnIfErr(json.Unmarshal(attachmentIDsRaw, &attachmentIDs), "draft: failed to unmarshal attachment IDs", "draft_id", id)
-	if len(attachmentIDs) > 0 {
-		attachments, attErr := h.Store.LoadAttachmentsForResend(ctx, attachmentIDs, claims.OrgID)
-		if attErr == nil && len(attachments) > 0 {
-			resendPayload["attachments"] = attachments
-		}
+	sendHTML, attachments, err := service.PrepareEmailAttachments(ctx, h.Store, claims.OrgID, bodyHTML, attachmentIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to prepare attachments: "+err.Error())
+		return
+	}
+	if bodyHTML != "" {
+		resendPayload["html"] = sendHTML
+	}
+	if len(attachments) > 0 {
+		resendPayload["attachments"] = attachments
 	}
 
 	bodyHTML, err = service.AddSenderPhoto(ctx, h.Store, claims.OrgID, fromAddr, h.AppURL, bodyHTML, bodyPlain, resendPayload)
@@ -453,6 +458,15 @@ func (h *DraftHandler) Send(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Error("draft: insert email failed", "error", err)
 			return err
+		}
+		if len(attachmentIDs) > 0 {
+			idsJSON, err := json.Marshal(attachmentIDs)
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Q().Exec(ctx, `UPDATE emails SET attachment_ids=$1 WHERE id=$2`, idsJSON, emailID); err != nil {
+				return err
+			}
 		}
 
 		// Update thread stats

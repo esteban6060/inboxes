@@ -41,6 +41,7 @@ interface AttachmentMeta {
   id: string;
   filename: string;
   size: number;
+  inline?: boolean;
 }
 
 // schedulePresets builds the scheduled-send choices relative to now.
@@ -233,7 +234,10 @@ export function FloatingComposeWindow() {
           composeData.attachmentIds.map((id) =>
             api.get<AttachmentMeta>(`/api/attachments/${id}/meta`)
           )
-        ).then(setAttachments).catch(() => {
+        ).then((items) => setAttachments(items.map((item) => ({
+          ...item,
+          inline: (composeData.bodyHtml || "").includes(`/api/attachments/${item.id}/inline`),
+        })))).catch(() => {
           setAttachments([]);
         });
       } else {
@@ -347,16 +351,51 @@ export function FloatingComposeWindow() {
     }
   }
 
+  async function handleInlineImageUpload(file: File): Promise<{ id: string; filename: string }> {
+    if (!(["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) || file.size > 10 * 1024 * 1024) {
+      const message = "Choose a PNG, JPEG, GIF, or WebP image under 10MB";
+      setError(message);
+      toast.error(message);
+      throw new Error(message);
+    }
+    setUploading(true);
+    setUploadProgress({ index: 1, total: 1, percent: 0 });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const data = await uploadFileWithProgress("/api/attachments/upload", form, (percent) =>
+        setUploadProgress({ index: 1, total: 1, percent })
+      );
+      if (!(["image/png", "image/jpeg", "image/gif", "image/webp"].includes(data.content_type))) {
+        throw new Error("The selected file is not a supported image");
+      }
+      setAttachments((prev) => [...prev, { id: data.id, filename: data.filename, size: data.size, inline: true }]);
+      return { id: data.id, filename: data.filename };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to upload image";
+      setError(message);
+      toast.error(message);
+      throw err;
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
+  }
+
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
     scheduleSave();
   }
 
+  const activeAttachmentIds = attachments
+    .filter((item) => !item.inline || bodyHtml.includes(`/api/attachments/${item.id}/inline`))
+    .map((item) => item.id);
+
   const saveDraft = useCallback(async (signal?: AbortSignal) => {
     if (!activeDomain) return;
 
     // Don't save empty drafts
-    if (!subject && !bodyPlain && to.length === 0) return;
+    if (!subject && !bodyPlain && !bodyHtml.includes("/api/attachments/") && to.length === 0) return;
 
     setSaveStatus("saving");
     try {
@@ -368,7 +407,7 @@ export function FloatingComposeWindow() {
         bcc_addresses: bcc,
         body_html: bodyHtml,
         body_plain: bodyPlain,
-        attachment_ids: attachments.map((a) => a.id),
+        attachment_ids: activeAttachmentIds,
       };
       // Include threading context for replies/forwards
       if (composeData?.replyToThreadId) draftPayload.thread_id = composeData.replyToThreadId;
@@ -523,7 +562,7 @@ export function FloatingComposeWindow() {
           bcc_addresses: bcc,
           body_html: fullHtml,
           body_plain: bodyPlain,
-          attachment_ids: attachments.map((a) => a.id),
+          attachment_ids: activeAttachmentIds,
         };
         if (composeData?.replyToThreadId) sendPatch.thread_id = composeData.replyToThreadId;
         if (composeData?.inReplyTo) sendPatch.in_reply_to = composeData.inReplyTo;
@@ -540,7 +579,7 @@ export function FloatingComposeWindow() {
           html: fullHtml,
           text: bodyPlain,
           domain_id: activeDomain?.id,
-          attachment_ids: attachments.map((a) => a.id),
+          attachment_ids: activeAttachmentIds,
         };
         // Include reply threading headers when replying
         if (composeData?.replyToThreadId) {
@@ -573,7 +612,7 @@ export function FloatingComposeWindow() {
           bcc: [...bcc],
           bodyHtml,
           bodyPlain,
-          attachmentIds: attachments.map((a) => a.id),
+          attachmentIds: activeAttachmentIds,
           inReplyTo: composeData?.inReplyTo,
           references: composeData?.references,
         };
@@ -660,7 +699,7 @@ export function FloatingComposeWindow() {
         bcc_addresses: bcc,
         body_html: fullHtml,
         body_plain: bodyPlain,
-        attachment_ids: attachments.map((a) => a.id),
+        attachment_ids: activeAttachmentIds,
       };
       if (composeData?.replyToThreadId) sendPatch.thread_id = composeData.replyToThreadId;
       if (composeData?.inReplyTo) sendPatch.in_reply_to = composeData.inReplyTo;
@@ -776,7 +815,8 @@ export function FloatingComposeWindow() {
     );
   }
 
-  const attachmentChips = attachments.length > 0 || uploadProgress ? (
+  const visibleAttachments = attachments.filter((item) => !item.inline);
+  const attachmentChips = visibleAttachments.length > 0 || uploadProgress ? (
     <div className="flex flex-wrap gap-1.5 px-3 py-1.5 border-t">
       {uploadProgress && (
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground rounded px-2 py-0.5">
@@ -784,7 +824,7 @@ export function FloatingComposeWindow() {
           Uploading {uploadProgress.index}/{uploadProgress.total} ({uploadProgress.percent}%)
         </span>
       )}
-      {attachments.map((att) => (
+      {visibleAttachments.map((att) => (
         <span
           key={att.id}
           className="inline-flex items-center gap-1 text-xs bg-muted rounded px-2 py-0.5"
@@ -922,6 +962,7 @@ export function FloatingComposeWindow() {
         <div className="flex-1 overflow-y-auto min-h-0 px-3 py-1">
           <TipTapEditor
             content={bodyHtml}
+            onUploadImage={handleInlineImageUpload}
             onChange={(html, plain) => {
               setBodyHtml(html);
               setBodyPlain(plain);
@@ -1081,6 +1122,7 @@ export function FloatingComposeWindow() {
         <div className="flex-1 min-h-0 flex flex-col">
           <TipTapEditor
             content={bodyHtml}
+            onUploadImage={handleInlineImageUpload}
             onChange={(html, plain) => {
               setBodyHtml(html);
               setBodyPlain(plain);

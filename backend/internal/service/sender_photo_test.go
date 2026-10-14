@@ -59,3 +59,18 @@ func TestSenderPhotoPlainTextAndNoPhoto(t *testing.T) {
 		t.Fatal("plain text did not survive HTML conversion")
 	}
 }
+
+func TestSenderPhotoKeepsComposerCIDImages(t *testing.T) {
+	st := &store.MockStore{GetSenderAliasPhotoFn: func(context.Context, string, string) (*store.AliasPhoto, error) {
+		return &store.AliasPhoto{AliasID: "a1", Version: "v1", Data: []byte("photo")}, nil
+	}}
+	storedBody := `<p>Before</p><img src="/api/attachments/image-id/inline"><p>After</p>`
+	payload := map[string]interface{}{"html": `<p>Before</p><img src="cid:inboxes-image-image-id"><p>After</p>`}
+	stored, err := AddSenderPhoto(context.Background(), st, "org", "hello@example.com", "https://mail.example.com", storedBody, "", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload["html"].(string), `src="cid:inboxes-image-image-id"`) || !strings.Contains(stored, `/api/attachments/image-id/inline`) {
+		t.Fatal("composer image source was replaced by the sender photo step")
+	}
+}

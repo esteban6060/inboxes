@@ -42,10 +42,10 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Detect actual MIME type from file content to block dangerous uploads
 	detected := http.DetectContentType(data)
 	blockedTypes := map[string]bool{
-		"application/x-executable":     true,
-		"application/x-msdos-program":  true,
-		"application/x-msdownload":     true,
-		"application/x-dosexec":        true,
+		"application/x-executable":                      true,
+		"application/x-msdos-program":                   true,
+		"application/x-msdownload":                      true,
+		"application/x-dosexec":                         true,
 		"application/vnd.microsoft.portable-executable": true,
 	}
 	if blockedTypes[detected] {
@@ -86,16 +86,16 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 // safeDownloadTypes is a whitelist of MIME types safe to serve with their real Content-Type.
 // Everything else is forced to application/octet-stream.
 var safeDownloadTypes = map[string]bool{
-	"image/png":             true,
-	"image/jpeg":            true,
-	"image/gif":             true,
-	"image/webp":            true,
-	"application/pdf":       true,
-	"text/plain":            true,
-	"text/csv":              true,
-	"application/zip":       true,
-	"application/gzip":      true,
-	"application/x-tar":     true,
+	"image/png":         true,
+	"image/jpeg":        true,
+	"image/gif":         true,
+	"image/webp":        true,
+	"application/pdf":   true,
+	"text/plain":        true,
+	"text/csv":          true,
+	"application/zip":   true,
+	"application/gzip":  true,
+	"application/x-tar": true,
 }
 
 // sanitizeFilename removes control characters and quotes from a filename
@@ -179,6 +179,16 @@ func (h *AttachmentHandler) Meta(w http.ResponseWriter, r *http.Request) {
 // ParseMultipartForm in Upload) keeps full-blob loading acceptable here;
 // streaming would add complexity for no practical benefit at this size limit.
 func (h *AttachmentHandler) Download(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, false)
+}
+
+// Inline serves only raster images with an authenticated same-origin URL for
+// the composer and sent-message previews.
+func (h *AttachmentHandler) Inline(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, true)
+}
+
+func (h *AttachmentHandler) serve(w http.ResponseWriter, r *http.Request, inline bool) {
 	claims := middleware.GetCurrentUser(r.Context())
 	attachmentID := chi.URLParam(r, "id")
 
@@ -197,6 +207,10 @@ func (h *AttachmentHandler) Download(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return
 	}
+	if inline && !map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}[contentType] {
+		writeError(w, http.StatusUnsupportedMediaType, "attachment is not a supported image")
+		return
+	}
 
 	// Force safe content type for downloads
 	if !safeDownloadTypes[contentType] {
@@ -206,7 +220,11 @@ func (h *AttachmentHandler) Download(w http.ResponseWriter, r *http.Request) {
 	// Sanitize filename for Content-Disposition header
 	safe := sanitizeFilename(filename)
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, safe, url.PathEscape(filename)))
+	disposition := "attachment"
+	if inline {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, disposition, safe, url.PathEscape(filename)))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(data)

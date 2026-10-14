@@ -343,6 +343,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 			// Attachments
 			r.Post("/api/attachments/upload", attachments.Upload)
 			r.Get("/api/attachments/{id}/meta", attachments.Meta)
+			r.Get("/api/attachments/{id}/inline", attachments.Inline)
 			r.Get("/api/attachments/{id}", attachments.Download)
 		})
 	})

@@ -17,7 +17,7 @@ const BounceExpiryDays = 30
 
 func (s *PgStore) LoadAttachmentsForResend(ctx context.Context, ids []string, orgID string) ([]map[string]string, error) {
 	rows, err := s.q.Query(ctx,
-		`SELECT filename, content_type, data FROM attachments WHERE id = ANY($1) AND org_id = $2`,
+		`SELECT id, filename, content_type, data FROM attachments WHERE id = ANY($1) AND org_id = $2`,
 		ids, orgID,
 	)
 	if err != nil {
@@ -27,12 +27,14 @@ func (s *PgStore) LoadAttachmentsForResend(ctx context.Context, ids []string, or
 
 	var attachments []map[string]string
 	for rows.Next() {
-		var filename, contentType string
+		var id, filename, contentType string
 		var data []byte
-		if rows.Scan(&filename, &contentType, &data) == nil {
+		if rows.Scan(&id, &filename, &contentType, &data) == nil {
 			attachments = append(attachments, map[string]string{
-				"content":  base64.StdEncoding.EncodeToString(data),
-				"filename": filename,
+				"id":           id,
+				"content":      base64.StdEncoding.EncodeToString(data),
+				"filename":     filename,
+				"content_type": contentType,
 			})
 		}
 	}

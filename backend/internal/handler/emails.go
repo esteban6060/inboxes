@@ -175,16 +175,18 @@ func (h *EmailHandler) Send(w http.ResponseWriter, r *http.Request) {
 		resendPayload["headers"] = headers
 	}
 
-	// Attach files from attachments table
-	if len(req.AttachmentIDs) > 0 {
-		attachments, err := h.Store.LoadAttachmentsForResend(ctx, req.AttachmentIDs, claims.OrgID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "failed to load attachments")
-			return
-		}
-		if len(attachments) > 0 {
-			resendPayload["attachments"] = attachments
-		}
+	// Keep authenticated image URLs in stored HTML; send CID references in
+	// the MIME body so recipients see each image at its authored position.
+	sendHTML, attachments, err := service.PrepareEmailAttachments(ctx, h.Store, claims.OrgID, req.HTML, req.AttachmentIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to prepare attachments: "+err.Error())
+		return
+	}
+	if req.HTML != "" {
+		resendPayload["html"] = sendHTML
+	}
+	if len(attachments) > 0 {
+		resendPayload["attachments"] = attachments
 	}
 
 	storedHTML, err := service.AddSenderPhoto(ctx, h.Store, claims.OrgID, req.From, h.AppURL, req.HTML, req.Text, resendPayload)
@@ -262,6 +264,15 @@ func (h *EmailHandler) Send(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Error("email: insert email failed", "error", err)
 			return fmt.Errorf("failed to create email")
+		}
+		if len(req.AttachmentIDs) > 0 {
+			idsJSON, err := json.Marshal(req.AttachmentIDs)
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Q().Exec(ctx, `UPDATE emails SET attachment_ids=$1 WHERE id=$2`, idsJSON, emailID); err != nil {
+				return err
+			}
 		}
 
 		// Update thread stats

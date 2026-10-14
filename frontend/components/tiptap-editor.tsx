@@ -13,6 +13,10 @@ import {
   List,
   ListOrdered,
   Quote,
+  ImagePlus,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -22,6 +26,7 @@ import {
   EmojiSuggestion,
   type EmojiSuggestionState,
 } from "./emoji-extension";
+import { InlineImage, IMAGE_WIDTHS, type ImageSize, type ImageAlign } from "./inline-image-extension";
 
 interface TipTapEditorProps {
   content?: string;
@@ -43,6 +48,7 @@ interface TipTapEditorProps {
    * a parent cannot see it on the document; this prop is the escape hatch.
    */
   onEscape?: () => boolean;
+  onUploadImage?: (file: File) => Promise<{ id: string; filename: string }>;
 }
 
 export function TipTapEditor({
@@ -56,6 +62,7 @@ export function TipTapEditor({
   quotedHtml,
   stripTracking = true,
   onEscape,
+  onUploadImage,
 }: TipTapEditorProps) {
   const [emojiState, setEmojiState] = useState<EmojiSuggestionState>({
     active: false,
@@ -70,7 +77,11 @@ export function TipTapEditor({
   // Refs for the editorProps.handleKeyDown closure, which is created once.
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const popupActiveRef = useRef(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imagePositionRef = useRef<number | null>(null);
 
   const onEmojiStateChange = useCallback(
     (state: EmojiSuggestionState) => {
@@ -104,12 +115,13 @@ export function TipTapEditor({
       EmojiSuggestion.configure({
         onStateChange: onEmojiStateChange,
       }),
+      InlineImage,
     ],
     content: content || "",
     autofocus,
     editorProps: {
       attributes: {
-        class: "text-[13px] leading-relaxed max-w-none focus:outline-none min-h-[120px] px-3 py-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_a]:text-primary [&_a]:underline",
+        class: "text-[13px] leading-relaxed max-w-none focus:outline-none min-h-[120px] px-3 py-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_a]:text-primary [&_a]:underline [&_.ProseMirror-selectednode]:outline [&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-primary",
       },
       handleKeyDown: (_view, event) => {
         if (event.key === "Escape" && !popupActiveRef.current) {
@@ -119,7 +131,7 @@ export function TipTapEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      onChange?.(editor.getHTML(), editor.getText());
+      onChangeRef.current?.(editor.getHTML(), editor.getText());
     },
   });
 
@@ -148,6 +160,27 @@ export function TipTapEditor({
 
   const popupActive = emojiState.active && emojiState.items.length > 0;
   popupActiveRef.current = popupActive;
+
+  const uploadSelectedImage = async (file: File) => {
+    if (!editor || !onUploadImage) return;
+    const position = imagePositionRef.current ?? editor.state.selection.from;
+    imagePositionRef.current = null;
+    try {
+      const uploaded = await onUploadImage(file);
+      if (editor.isDestroyed) return;
+      editor.chain().focus().insertContentAt(Math.min(position, editor.state.doc.content.size), {
+        type: "inlineImage",
+        attrs: {
+          src: `/api/attachments/${uploaded.id}/inline`,
+          alt: uploaded.filename,
+          width: IMAGE_WIDTHS.M,
+          align: "start",
+        },
+      }).run();
+    } catch {
+      // The composer reports the upload error.
+    }
+  };
 
   // Compute popup position relative to editor wrapper
   const getPopupStyle = (): React.CSSProperties => {
@@ -237,7 +270,12 @@ export function TipTapEditor({
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 border-t px-1 py-1 bg-muted/30 shrink-0">
+      <div className="flex items-center gap-0.5 border-t px-1 py-1 bg-muted/30 shrink-0 overflow-x-auto">
+        {onUploadImage && <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void uploadSelectedImage(file);
+          event.target.value = "";
+        }} />}
         {toolbarLeft}
         {toolbarLeft && <div className="w-px h-5 bg-border mx-1" />}
         <ToolbarButton
@@ -300,6 +338,23 @@ export function TipTapEditor({
         >
           <Quote className="h-3.5 w-3.5" />
         </ToolbarButton>
+        {onUploadImage && <>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <ToolbarButton active={false} onClick={() => {
+            imagePositionRef.current = editor.state.selection.from;
+            imageInputRef.current?.click();
+          }} title="Insert image at cursor">
+            <ImagePlus className="h-3.5 w-3.5" />
+          </ToolbarButton>
+          {editor.isActive("inlineImage") && <>
+            <div className="w-px h-4 bg-border mx-0.5" />
+            {(Object.keys(IMAGE_WIDTHS) as ImageSize[]).map((size) => <ToolbarButton key={size} active={editor.getAttributes("inlineImage").width === IMAGE_WIDTHS[size]} onClick={() => editor.chain().focus().updateAttributes("inlineImage", { width: IMAGE_WIDTHS[size] }).run()} title={`Image size ${size} (${IMAGE_WIDTHS[size]}px)`}>{size}</ToolbarButton>)}
+            <div className="w-px h-4 bg-border mx-0.5" />
+            {(["start", "center", "end"] as ImageAlign[]).map((align) => <ToolbarButton key={align} active={editor.getAttributes("inlineImage").align === align} onClick={() => editor.chain().focus().updateAttributes("inlineImage", { align }).run()} title={`Align image ${align}`}>
+              {align === "start" ? <AlignLeft className="h-3.5 w-3.5" /> : align === "center" ? <AlignCenter className="h-3.5 w-3.5" /> : <AlignRight className="h-3.5 w-3.5" />}
+            </ToolbarButton>)}
+          </>}
+        </>}
         {toolbarRight && <div className="flex-1" />}
         {toolbarRight}
       </div>
@@ -324,7 +379,7 @@ function ToolbarButton({
       onClick={onClick}
       title={title}
       className={cn(
-        "p-1.5 rounded hover:bg-muted transition-colors",
+        "p-1.5 rounded hover:bg-muted transition-colors shrink-0",
         active && "bg-muted text-foreground"
       )}
     >
