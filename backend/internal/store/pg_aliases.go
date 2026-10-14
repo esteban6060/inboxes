@@ -131,36 +131,32 @@ func (s *PgStore) RemoveAliasUser(ctx context.Context, aliasID, userID string) e
 }
 
 func (s *PgStore) SetDefaultAlias(ctx context.Context, aliasID, userID, orgID string) error {
-	// Get the domain_id for this alias and verify org ownership
-	var domainID string
-	err := s.q.QueryRow(ctx,
-		`SELECT a.domain_id FROM aliases a WHERE a.id = $1 AND a.org_id = $2`,
-		aliasID, orgID).Scan(&domainID)
-	if err != nil {
-		return err
-	}
+	return s.WithTx(ctx, func(tx Store) error {
+		pg := tx.(*PgStore)
+		var domainID string
+		// Check send permission before clearing the previous default.
+		err := pg.q.QueryRow(ctx,
+			`SELECT a.domain_id FROM aliases a
+			 JOIN alias_users au ON au.alias_id = a.id
+			 WHERE a.id = $1 AND a.org_id = $2 AND a.deleted_at IS NULL
+			   AND au.user_id = $3 AND au.can_send_as = true`,
+			aliasID, orgID, userID).Scan(&domainID)
+		if err != nil {
+			return fmt.Errorf("user does not have access to this alias")
+		}
 
-	// Clear is_default for all of this user's aliases on this domain
-	if _, err := s.q.Exec(ctx,
-		`UPDATE alias_users SET is_default = false
-		 WHERE user_id = $1 AND alias_id IN (
-		   SELECT id FROM aliases WHERE domain_id = $2 AND org_id = $3
-		 )`,
-		userID, domainID, orgID); err != nil {
-		slog.Error("aliases: failed to clear default alias", "error", err)
-	}
-
-	// Set this alias as default (only if user already has access)
-	tag, err := s.q.Exec(ctx,
-		`UPDATE alias_users SET is_default = true WHERE alias_id = $1 AND user_id = $2`,
-		aliasID, userID)
-	if err != nil {
+		if _, err := pg.q.Exec(ctx,
+			`UPDATE alias_users SET is_default = false
+			 WHERE user_id = $1 AND alias_id IN (
+			   SELECT id FROM aliases WHERE domain_id = $2 AND org_id = $3
+			 )`, userID, domainID, orgID); err != nil {
+			return err
+		}
+		_, err = pg.q.Exec(ctx,
+			`UPDATE alias_users SET is_default = true WHERE alias_id = $1 AND user_id = $2`,
+			aliasID, userID)
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("user does not have access to this alias")
-	}
-	return nil
+	})
 }
 
 func (s *PgStore) ListDiscoveredAddresses(ctx context.Context, orgID string) ([]map[string]any, error) {

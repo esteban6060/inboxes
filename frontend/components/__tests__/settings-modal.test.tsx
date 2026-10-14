@@ -814,4 +814,49 @@ describe("SettingsModal", () => {
     expect(api.get).toHaveBeenCalledWith("/api/domains/all");
   });
 
+  it("saves a default From in Aliases and shows it in Compose", async () => {
+    let selected = false;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/users/me/aliases") return Promise.resolve([
+        { id: "a1", address: "hello@test.com", domain_id: "d1", can_send_as: true, is_default: !selected },
+        { id: "a2", address: "sales@test.com", domain_id: "d1", can_send_as: true, is_default: selected },
+        { id: "a3", address: "private@test.com", domain_id: "d1", can_send_as: false, is_default: false },
+      ]);
+      if (url === "/api/aliases" || url === "/api/aliases/discovered") return Promise.resolve([]);
+      return defaultApiGetImpl(url);
+    });
+    vi.mocked(api.patch).mockImplementation(async (url: string) => {
+      if (url === "/api/aliases/a2/default") selected = true;
+      return {};
+    });
+
+    render(<SettingsModal {...defaultProps} defaultTab="aliases" />);
+    const aliasSelect = await screen.findByLabelText("Default From for test.com");
+    expect(aliasSelect).toHaveValue("a1");
+    expect(screen.queryByRole("option", { name: "private@test.com" })).not.toBeInTheDocument();
+    fireEvent.change(aliasSelect, { target: { value: "a2" } });
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith("/api/aliases/a2/default"));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Profile/ }));
+    await waitFor(() => expect(screen.getByLabelText("Default From for test.com")).toHaveValue("a2"));
+  });
+
+  it("lets a member choose a default From in Aliases", async () => {
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/users/me") return Promise.resolve({
+        id: "u2", org_id: "org1", email: "member@test.com", name: "Member", role: "member",
+        status: "active", is_owner: false, created_at: "2026-01-01T00:00:00Z",
+      });
+      if (url === "/api/users/me/aliases") return Promise.resolve([
+        { id: "a1", address: "hello@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: false },
+      ]);
+      return defaultApiGetImpl(url);
+    });
+
+    render(<SettingsModal {...defaultProps} defaultTab="aliases" />);
+    const aliasSelect = await screen.findByLabelText("Default From for test.com");
+    fireEvent.change(aliasSelect, { target: { value: "a1" } });
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith("/api/aliases/a1/default"));
+  });
+
 });

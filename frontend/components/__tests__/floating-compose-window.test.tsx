@@ -338,6 +338,33 @@ describe("FloatingComposeWindow", () => {
     });
   });
 
+  it("preserves a manually chosen From when the default alias refreshes", async () => {
+    let aliasData = [
+      { id: "a1", address: "support@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: false },
+      { id: "a2", address: "admin@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: true },
+    ];
+    vi.mocked(api.get).mockImplementation(async (url: string) => url === "/api/users/me/aliases" ? aliasData : []);
+    render(<FloatingComposeWindow />);
+    await waitFor(() => expect(Array.from(document.querySelectorAll("select")).some((s) => s.value === "admin@test.com")).toBe(true));
+
+    const fromSelect = Array.from(document.querySelectorAll("select")).find((s) => s.value === "admin@test.com")!;
+    fireEvent.change(fromSelect, { target: { value: "support@test.com" } });
+    aliasData = aliasData.map((alias) => ({ ...alias }));
+    act(() => window.dispatchEvent(new Event("default-from-updated")));
+    await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === "/api/users/me/aliases").length).toBe(2));
+    expect(fromSelect).toHaveValue("support@test.com");
+  });
+
+  it("keeps the saved draft From even when another alias is the default", async () => {
+    mockComposeData = { draftId: "draft-1", fromAddress: "support@test.com" };
+    vi.mocked(api.get).mockResolvedValue([
+      { id: "a1", address: "support@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: false },
+      { id: "a2", address: "admin@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: true },
+    ]);
+    render(<FloatingComposeWindow />);
+    await waitFor(() => expect(Array.from(document.querySelectorAll("select")).some((s) => s.value === "support@test.com")).toBe(true));
+  });
+
   it("From falls back to hello@ alias when no default", async () => {
     const aliasData = [
       { id: "a1", address: "support@test.com", name: "", domain_id: "d1", can_send_as: true, is_default: false },

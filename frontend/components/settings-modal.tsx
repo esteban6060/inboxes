@@ -404,6 +404,88 @@ function PrivacyCard() {
   );
 }
 
+interface DefaultFromAlias {
+  id: string;
+  address: string;
+  domain_id: string;
+  can_send_as: boolean;
+  is_default: boolean;
+}
+
+function DefaultFromSettings({ onChanged }: { onChanged?: () => void }) {
+  const [aliases, setAliases] = useState<DefaultFromAlias[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingDomain, setSavingDomain] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      api.get<DefaultFromAlias[]>("/api/users/me/aliases")
+        .then((data) => { if (active) setAliases(data.filter((alias) => alias.can_send_as)); })
+        .catch(() => { if (active) toast.error("Failed to load send-from addresses"); })
+        .finally(() => { if (active) setLoading(false); });
+    };
+    load();
+    window.addEventListener("default-from-updated", load);
+    return () => {
+      active = false;
+      window.removeEventListener("default-from-updated", load);
+    };
+  }, []);
+
+  const groups = Array.from(new Set(aliases.map((alias) => alias.domain_id)));
+
+  async function selectDefault(aliasId: string) {
+    const selected = aliases.find((alias) => alias.id === aliasId);
+    if (!selected) return;
+    setSavingDomain(selected.domain_id);
+    try {
+      await api.patch(`/api/aliases/${aliasId}/default`);
+      setAliases((current) => current.map((alias) => alias.domain_id === selected.domain_id
+        ? { ...alias, is_default: alias.id === aliasId }
+        : alias));
+      window.dispatchEvent(new Event("default-from-updated"));
+      onChanged?.();
+      toast.success("Default From address saved");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Failed to save default From address");
+    } finally {
+      setSavingDomain(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">Default From</p>
+        <p className="text-xs text-muted-foreground">Used for new emails. Set one address per domain; replies and drafts keep their own From address.</p>
+      </div>
+      {loading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner /> Loading addresses...</div>
+        : groups.length === 0 ? <p className="text-xs text-muted-foreground">No aliases available for sending.</p>
+        : groups.map((domainId) => {
+          const choices = aliases.filter((alias) => alias.domain_id === domainId);
+          const domainName = choices[0].address.split("@").pop() || "Domain";
+          return (
+            <div key={domainId} className="flex flex-wrap items-center justify-between gap-2">
+              <label htmlFor={`default-from-${domainId}`} className="text-sm text-muted-foreground">{domainName}</label>
+              <select
+                id={`default-from-${domainId}`}
+                aria-label={`Default From for ${domainName}`}
+                className="h-9 min-w-48 max-w-full rounded-md border bg-background px-2 text-sm"
+                value={choices.find((alias) => alias.is_default)?.id || ""}
+                disabled={savingDomain === domainId}
+                onChange={(event) => void selectDefault(event.target.value)}
+              >
+                <option value="" disabled>Select an address</option>
+                {choices.map((alias) => <option key={alias.id} value={alias.id}>{alias.address}</option>)}
+              </select>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
 function ComposeCard({ initialUndoSeconds }: { initialUndoSeconds?: number }) {
   const { warnNoSubject, updatePreference } = usePreferences();
   const queryClient = useQueryClient();
@@ -432,6 +514,7 @@ function ComposeCard({ initialUndoSeconds }: { initialUndoSeconds?: number }) {
         <CardDescription>Control send behavior when composing emails</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <DefaultFromSettings />
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -1441,6 +1524,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
     try {
       await api.patch(`/api/aliases/${aliasId}/default`);
       setSuccess("Default alias updated");
+      window.dispatchEvent(new Event("default-from-updated"));
       loadAliases();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to set default");
@@ -2516,6 +2600,9 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                 {activeTab === "aliases" && !isAdmin && (
                   <div className="space-y-6">
                     <Card>
+                      <CardContent className="pt-6"><DefaultFromSettings onChanged={loadMyAliases} /></CardContent>
+                    </Card>
+                    <Card>
                       <CardHeader>
                         <CardTitle>My Aliases</CardTitle>
                         <CardDescription>Email aliases assigned to your account. Profile photos are public and included inside outgoing emails; inbox avatars depend on the recipient&apos;s email service.</CardDescription>
@@ -2556,6 +2643,9 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
 
                 {activeTab === "aliases" && isAdmin && (
                   <div className="space-y-6">
+                    <Card>
+                      <CardContent className="pt-6"><DefaultFromSettings onChanged={loadAliases} /></CardContent>
+                    </Card>
                     {/* Discovered addresses — quick create */}
                     {discoveredAddresses.length > 0 && (
                       <Card>
@@ -2674,14 +2764,18 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                                     {aliases
                                       .filter((a) => a.domain_id === domain.id)
                                       .map((alias) => {
-                                        const isMyDefault = alias.users?.some((au) => au.user_id === user?.id && au.is_default);
+                                        const myAssignment = alias.users?.find((au) => au.user_id === user?.id);
+                                        const isMyDefault = myAssignment?.is_default;
                                         return (
                                         <div key={alias.id} className="rounded-lg border p-3 space-y-2">
                                           <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
                                               <button
                                                 onClick={() => handleSetDefault(alias.id)}
-                                                title={isMyDefault ? "Default send-from" : "Set as default send-from"}
+                                                type="button"
+                                                disabled={!myAssignment?.can_send_as}
+                                                title={!myAssignment?.can_send_as ? "You cannot send from this alias" : isMyDefault ? "Default send-from" : "Set as default send-from"}
+                                                aria-label={`${isMyDefault ? "Default From" : "Set default From"}: ${alias.address}`}
                                                 className="shrink-0"
                                               >
                                                 <Star className={cn(

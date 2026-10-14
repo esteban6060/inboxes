@@ -154,6 +154,7 @@ export function FloatingComposeWindow() {
 
   // Alias state
   const [aliases, setAliases] = useState<MyAlias[]>([]);
+  const fromChosenByUserRef = useRef(false);
 
   // Fetch aliases when compose opens
   useEffect(() => {
@@ -167,11 +168,13 @@ export function FloatingComposeWindow() {
     }).catch(() => { if (active) toast.error("Failed to load aliases"); });
     void loadAliases();
     window.addEventListener("alias-photo-updated", loadAliases);
+    window.addEventListener("default-from-updated", loadAliases);
     return () => {
       active = false;
       window.removeEventListener("alias-photo-updated", loadAliases);
+      window.removeEventListener("default-from-updated", loadAliases);
     };
-  }, [composeState, activeDomain]);
+  }, [composeState, activeDomain?.id]);
 
   // Pick best default from address
   function pickDefaultFrom(presetFrom?: string): string {
@@ -198,6 +201,7 @@ export function FloatingComposeWindow() {
     if (composeData && initializedDataRef.current === composeData) return;
     if (composeState === "open" && composeData) {
       initializedDataRef.current = composeData;
+      fromChosenByUserRef.current = false;
       // Cancel any pending autosave from the previous content. Without this
       // a queued save could write the new content into the old draft.
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -271,15 +275,16 @@ export function FloatingComposeWindow() {
 
   // Set from address once aliases are loaded
   useEffect(() => {
-    if (composeState === "open") {
+    if (composeState === "open" && !fromChosenByUserRef.current) {
       setFromAddress(pickDefaultFrom(composeData?.fromAddress));
     }
-  }, [composeState, aliases, composeData?.fromAddress, activeDomain]);
+  }, [composeState, aliases, composeData, activeDomain?.id, activeDomain?.domain]);
 
   // Reset form on close
   useEffect(() => {
     if (composeState === "closed") {
       setFromAddress("");
+      fromChosenByUserRef.current = false;
       setTo([]);
       setCc([]);
       setBcc([]);
@@ -897,7 +902,7 @@ export function FloatingComposeWindow() {
             {aliases.length > 1 ? (
               <select
                 value={fromAddress}
-                onChange={(e) => { setFromAddress(e.target.value); scheduleSave(); }}
+                onChange={(e) => { fromChosenByUserRef.current = true; setFromAddress(e.target.value); scheduleSave(); }}
                 className="flex-1 h-7 text-sm border-0 bg-transparent shadow-none focus-visible:outline-none focus-visible:ring-0 px-1 cursor-pointer"
               >
                 {aliases.map((a) => (
@@ -1055,7 +1060,7 @@ export function FloatingComposeWindow() {
             {aliases.length > 1 ? (
               <select
                 value={fromAddress}
-                onChange={(e) => { setFromAddress(e.target.value); scheduleSave(); }}
+                onChange={(e) => { fromChosenByUserRef.current = true; setFromAddress(e.target.value); scheduleSave(); }}
                 className="flex-1 h-7 text-sm border-0 bg-transparent shadow-none focus-visible:outline-none focus-visible:ring-0 px-1 cursor-pointer"
               >
                 {aliases.map((a) => (
@@ -1071,7 +1076,7 @@ export function FloatingComposeWindow() {
             ) : (
               <Input
                 value={fromAddress}
-                onChange={(e) => { setFromAddress(e.target.value); scheduleSave(); }}
+                onChange={(e) => { fromChosenByUserRef.current = true; setFromAddress(e.target.value); scheduleSave(); }}
                 placeholder={`hello@${activeDomain?.domain || "example.com"}`}
                 className="h-7 text-sm border-0 shadow-none focus-visible:ring-0 px-1"
               />
