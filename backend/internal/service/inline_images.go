@@ -25,9 +25,10 @@ func PrepareEmailAttachments(ctx context.Context, st store.EmailStore, orgID, bo
 	inlineIDs := map[string]bool{}
 	for _, match := range composerImageTag.FindAllStringSubmatch(bodyHTML, -1) {
 		id, err := uuid.Parse(match[2])
-		if err == nil {
-			inlineIDs[id.String()] = true
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid inline image reference")
 		}
+		inlineIDs[id.String()] = true
 	}
 
 	ids := make([]string, 0, len(attachmentIDs)+len(inlineIDs))
