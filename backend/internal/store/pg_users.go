@@ -306,13 +306,17 @@ func (s *PgStore) UpdatePreferences(ctx context.Context, userID string, prefs ma
 
 func (s *PgStore) ListMyAliases(ctx context.Context, userID, orgID string) ([]map[string]any, error) {
 	rows, err := s.q.Query(ctx,
-		`SELECT a.id, a.address, a.name, a.domain_id, au.can_send_as, au.is_default,
+		`SELECT a.id, a.address, a.name, a.domain_id,
+		 CASE WHEN u.role = 'admin' THEN true ELSE au.can_send_as END AS can_send_as,
+		 COALESCE(au.is_default, false) AS is_default,
 		 CASE WHEN a.photo_version IS NULL THEN '' ELSE
 		 '/api/public/alias-photos/' || a.id::text || '/' || a.photo_version::text END AS avatar_url
-		 FROM aliases a
-		 JOIN alias_users au ON au.alias_id = a.id
-		 WHERE au.user_id = $1 AND a.org_id = $2 AND a.deleted_at IS NULL
-		 ORDER BY au.is_default DESC, a.address`,
+		 FROM users u
+		 JOIN aliases a ON a.org_id = u.org_id
+		 LEFT JOIN alias_users au ON au.alias_id = a.id AND au.user_id = u.id
+		 WHERE u.id = $1 AND u.org_id = $2 AND a.deleted_at IS NULL
+		   AND (u.role = 'admin' OR au.user_id IS NOT NULL)
+		 ORDER BY COALESCE(au.is_default, false) DESC, a.address`,
 		userID, orgID)
 	if err != nil {
 		return nil, err

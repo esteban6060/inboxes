@@ -213,6 +213,39 @@ func TestSetDefaultAlias(t *testing.T) {
 	}
 }
 
+func TestAdminCanDefaultAnUnassignedAlias(t *testing.T) {
+	ctx := context.Background()
+	orgID, adminID := seedOrg(t, "admin-default-unassigned", "admin-default-unassigned@test.com", "password123")
+	t.Cleanup(func() { cleanupOrg(t, orgID) })
+
+	domainID := seedDomain(t, orgID, "admin-default-unassigned.example.com")
+	aliasID, err := testStore.CreateAlias(ctx, orgID, domainID, "notification@admin-default-unassigned.example.com", "Notifications")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aliases, err := testStore.ListMyAliases(ctx, adminID, orgID)
+	if err != nil || len(aliases) != 1 || aliases[0]["id"] != aliasID || aliases[0]["can_send_as"] != true {
+		t.Fatalf("admin should see and be able to send from an unassigned alias: aliases=%v err=%v", aliases, err)
+	}
+	if err := testStore.SetDefaultAlias(ctx, aliasID, adminID, orgID); err != nil {
+		t.Fatalf("admin set default: %v", err)
+	}
+	aliases, err = testStore.ListMyAliases(ctx, adminID, orgID)
+	if err != nil || len(aliases) != 1 || aliases[0]["is_default"] != true {
+		t.Fatalf("admin default was not saved: aliases=%v err=%v", aliases, err)
+	}
+
+	memberID := seedUser(t, orgID, "member-default-unassigned@test.com", "member")
+	aliases, err = testStore.ListMyAliases(ctx, memberID, orgID)
+	if err != nil || len(aliases) != 0 {
+		t.Fatalf("member should not see unassigned aliases: aliases=%v err=%v", aliases, err)
+	}
+	if err := testStore.SetDefaultAlias(ctx, aliasID, memberID, orgID); err == nil {
+		t.Fatal("member must not set an unassigned alias as default")
+	}
+}
+
 func TestDiscoveredAddresses(t *testing.T) {
 	ctx := context.Background()
 	orgID, _ := seedOrg(t, fmt.Sprintf("discovered-%s", t.Name()), fmt.Sprintf("discovered-%s@test.com", t.Name()), "password123")

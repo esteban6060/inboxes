@@ -134,15 +134,29 @@ func (s *PgStore) SetDefaultAlias(ctx context.Context, aliasID, userID, orgID st
 	return s.WithTx(ctx, func(tx Store) error {
 		pg := tx.(*PgStore)
 		var domainID string
-		// Check send permission before clearing the previous default.
+		var role string
+		var canSendAs bool
+		// Check the alias and send permission before clearing the previous default.
 		err := pg.q.QueryRow(ctx,
-			`SELECT a.domain_id FROM aliases a
-			 JOIN alias_users au ON au.alias_id = a.id
-			 WHERE a.id = $1 AND a.org_id = $2 AND a.deleted_at IS NULL
-			   AND au.user_id = $3 AND au.can_send_as = true`,
-			aliasID, orgID, userID).Scan(&domainID)
-		if err != nil {
+			`SELECT a.domain_id, u.role, COALESCE(au.can_send_as, false)
+			 FROM aliases a
+			 JOIN users u ON u.id = $3 AND u.org_id = a.org_id
+			 LEFT JOIN alias_users au ON au.alias_id = a.id AND au.user_id = u.id
+			 WHERE a.id = $1 AND a.org_id = $2 AND a.deleted_at IS NULL`,
+			aliasID, orgID, userID).Scan(&domainID, &role, &canSendAs)
+		if err != nil || (role != "admin" && !canSendAs) {
 			return fmt.Errorf("user does not have access to this alias")
+		}
+		// Admins may send from any alias in their organization. Assign the
+		// selected alias so the per-user default can be stored and displayed.
+		if role == "admin" {
+			if _, err := pg.q.Exec(ctx,
+				`INSERT INTO alias_users (alias_id, user_id, can_send_as)
+				 VALUES ($1, $2, true)
+				 ON CONFLICT (alias_id, user_id) DO UPDATE SET can_send_as = true`,
+				aliasID, userID); err != nil {
+				return err
+			}
 		}
 
 		if _, err := pg.q.Exec(ctx,

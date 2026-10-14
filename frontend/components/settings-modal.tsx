@@ -2764,8 +2764,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                                     {aliases
                                       .filter((a) => a.domain_id === domain.id)
                                       .map((alias) => {
-                                        const myAssignment = alias.users?.find((au) => au.user_id === user?.id);
-                                        const isMyDefault = myAssignment?.is_default;
+                                        const isMyDefault = alias.users?.some((au) => au.user_id === user?.id && au.is_default);
                                         return (
                                         <div key={alias.id} className="rounded-lg border p-3 space-y-2">
                                           <div className="flex items-center justify-between">
@@ -2773,8 +2772,7 @@ export function SettingsModal({ open, onOpenChange, defaultTab }: SettingsModalP
                                               <button
                                                 onClick={() => handleSetDefault(alias.id)}
                                                 type="button"
-                                                disabled={!myAssignment?.can_send_as}
-                                                title={!myAssignment?.can_send_as ? "You cannot send from this alias" : isMyDefault ? "Default send-from" : "Set as default send-from"}
+                                                title={isMyDefault ? "Default send-from" : "Set as default send-from"}
                                                 aria-label={`${isMyDefault ? "Default From" : "Set default From"}: ${alias.address}`}
                                                 className="shrink-0"
                                               >
