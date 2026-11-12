@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -418,6 +419,66 @@ func TestAuth_SignupValidation(t *testing.T) {
 				t.Errorf("body = %q, want to contain %q", w.Body.String(), tt.wantError)
 			}
 		})
+	}
+}
+
+func TestAuth_ResetPasswordCodeFlow(t *testing.T) {
+	h := newAuthHandler()
+	const email = "integ-reset-code@example.com"
+	orgID, _ := seedOrg(t, "Reset Code Org", email, "OldPassword1")
+	t.Cleanup(func() { cleanupOrg(t, orgID) })
+
+	delivered := make(chan string, 2)
+	resend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			To   []string `json:"to"`
+			Text string   `json:"text"`
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/emails" ||
+			json.NewDecoder(r.Body).Decode(&payload) != nil || len(payload.To) != 1 || payload.To[0] != email {
+			t.Error("unexpected Resend request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		delivered <- payload.Text
+		w.Write([]byte(`{"id":"test-email"}`))
+	}))
+	defer resend.Close()
+	restoreResend := service.SetResendBaseURLForTest(resend.URL)
+	defer restoreResend()
+	h.ResendSvc = service.NewResendService(testEncSvc, testPool, "re_test", "noreply@example.com")
+
+	post := func(handle http.HandlerFunc, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		handle(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+		return w
+	}
+	known := post(h.ForgotPassword, `{"email":"`+email+`"}`)
+	unknown := post(h.ForgotPassword, `{"email":"unknown-reset@example.com"}`)
+	if known.Code != http.StatusOK || unknown.Code != known.Code || unknown.Body.String() != known.Body.String() {
+		t.Fatalf("recovery responses differ: known %d, unknown %d", known.Code, unknown.Code)
+	}
+	if len(delivered) != 1 {
+		t.Fatalf("expected one recovery email, got %d", len(delivered))
+	}
+	code := regexp.MustCompile(`\b[0-9]{8}\b`).FindString(<-delivered)
+	if code == "" || strings.Contains(known.Body.String(), code) {
+		t.Fatal("recovery code should be present only in the email")
+	}
+
+	wrongEmail := post(h.ResetPassword, `{"email":"unknown-reset@example.com","code":"`+code+`","password":"NewPassword1"}`)
+	if wrongEmail.Code != http.StatusBadRequest {
+		t.Fatalf("code accepted for wrong account: %d", wrongEmail.Code)
+	}
+	body := `{"email":" INTEG-RESET-CODE@example.com ","code":"` + code + `","password":"NewPassword1"}`
+	if w := post(h.ResetPassword, body); w.Code != http.StatusOK {
+		t.Fatalf("code reset: %d %s", w.Code, w.Body.String())
+	}
+	if w := post(h.ResetPassword, body); w.Code != http.StatusBadRequest {
+		t.Fatalf("code replay: got %d", w.Code)
+	}
+	if w := post(h.Login, `{"email":"`+email+`","password":"NewPassword1"}`); w.Code != http.StatusOK {
+		t.Fatalf("login after code reset: %d %s", w.Code, w.Body.String())
 	}
 }
 

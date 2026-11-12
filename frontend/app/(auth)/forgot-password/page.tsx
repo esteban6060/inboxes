@@ -14,6 +14,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { ResetPasswordForm } from "../reset-password/reset-password-form";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -47,21 +48,7 @@ export default function ForgotPasswordPage() {
   }
 
   if (sent) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Check your email</CardTitle>
-          <CardDescription>
-            We sent a password reset link to {email}
-          </CardDescription>
-        </CardHeader>
-        <CardFooter>
-          <Link href="/login" className="text-sm text-primary hover:underline">
-            Back to sign in
-          </Link>
-        </CardFooter>
-      </Card>
-    );
+    return <ResetPasswordForm email={email} />;
   }
 
   return (
@@ -69,7 +56,7 @@ export default function ForgotPasswordPage() {
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
         <CardDescription>
-          Enter your email and we&apos;ll send you a reset link
+          Enter your email and we&apos;ll send you a reset code
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
@@ -96,8 +83,11 @@ export default function ForgotPasswordPage() {
         <CardFooter className="flex flex-col space-y-4">
           <Button className="w-full" disabled={loading}>
             {loading ? <Spinner className="mr-2" /> : null}
-            Send reset link
+            Send reset code
           </Button>
+          <Link href="/reset-password" className="text-sm text-muted-foreground hover:text-primary">
+            I already have a code
+          </Link>
           <Link
             href="/login"
             className="text-sm text-muted-foreground hover:text-primary"

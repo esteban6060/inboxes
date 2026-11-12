@@ -182,7 +182,8 @@ func (s *PgStore) SetResetToken(ctx context.Context, email, token string, expire
 	tag, err := s.q.Exec(ctx,
 		`UPDATE accounts SET reset_token = $1, reset_expires_at = $2, updated_at = now()
 		 WHERE lower(email) = lower($3) AND EXISTS (
-		   SELECT 1 FROM users WHERE users.account_id = accounts.id AND users.status = 'active'
+		   SELECT 1 FROM users u JOIN orgs o ON o.id = u.org_id
+		   WHERE u.account_id = accounts.id AND u.status = 'active' AND o.deleted_at IS NULL
 		 )`,
 		hashSecretToken(token), expires, email,
 	)

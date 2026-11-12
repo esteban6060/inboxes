@@ -454,22 +454,6 @@ func TestForgotPassword_InvalidEmail(t *testing.T) {
 	}
 }
 
-func TestForgotPassword_ValidShape(t *testing.T) {
-	t.Parallel()
-	// Valid payload passes validation — will panic at ResendSvc.HasSystemKey (nil) or DB exec
-	h := &AuthHandler{StripeKey: "sk_test"}
-	body := `{"email":"user@example.com"}`
-	req := httptest.NewRequest("POST", "/auth/forgot-password", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	func() {
-		defer func() { recover() }()
-		h.ForgotPassword(w, req)
-	}()
-	if w.Code == http.StatusBadRequest {
-		t.Errorf("ForgotPassword(valid shape): got 400, validation should pass: %s", w.Body.String())
-	}
-}
-
 // ── ResetPassword validation ──
 
 func TestResetPassword_InvalidJSON(t *testing.T) {
@@ -990,27 +974,15 @@ func TestResendVerification_Success(t *testing.T) {
 	}
 }
 
-// ── #14: Forgot password always returns 200 ──
-
-func TestForgotPassword_AlwaysReturns200(t *testing.T) {
+func TestForgotPassword_EmailUnavailable(t *testing.T) {
 	t.Parallel()
-	h := &AuthHandler{
-		Store: &store.MockStore{
-			SetResetTokenFn: func(ctx context.Context, email, token string, expires time.Time) (int64, error) {
-				return 0, nil // no rows affected — user doesn't exist
-			},
-		},
-		StripeKey: "sk_test", // hosted mode
-	}
-	body := `{"email":"nonexistent@example.com"}`
+	h := &AuthHandler{}
+	body := `{"email":"user@example.com"}`
 	req := httptest.NewRequest("POST", "/auth/forgot-password", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ForgotPassword(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("ForgotPassword(nonexistent): got status %d, want %d", w.Code, http.StatusOK)
-	}
-	if !strings.Contains(w.Body.String(), "if that email exists") {
-		t.Errorf("ForgotPassword(nonexistent): body = %q", w.Body.String())
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "email_not_configured") {
+		t.Fatalf("ForgotPassword without system email: got %d %s", w.Code, w.Body.String())
 	}
 }
 

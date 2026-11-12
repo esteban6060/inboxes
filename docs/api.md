@@ -41,7 +41,7 @@ Rate-limited responses include a `Retry-After` header (seconds until the window 
 | `POST /api/auth/signup` | 5 | 1 hour | IP |
 | `POST /api/auth/login` | 10/IP + 10/email | 15 min | IP + body `email` |
 | `POST /api/auth/forgot-password` | 3/IP + 3/email | 1 hour | IP + body `email` |
-| `POST /api/auth/reset-password` | 5 | 15 min | IP |
+| `POST /api/auth/reset-password` | 5/IP + 5/email | 15 min | IP + body `email` when using a code |
 | `POST /api/auth/claim` | 5 | 15 min | IP |
 | `GET /api/auth/claim/validate` | 10 | 15 min | IP |
 | `POST /api/auth/verify-email` | 5/IP + 5/email | 15 min | IP + body `email` |
@@ -130,8 +130,8 @@ Response:
 |--------|------|------------|-------------|
 | `POST` | `/api/auth/signup` | 5/hr | Register a new account |
 | `POST` | `/api/auth/login` | 10/15min | Log in, receive JWT cookie |
-| `POST` | `/api/auth/forgot-password` | 3/hr | Send password reset email |
-| `POST` | `/api/auth/reset-password` | 5/15min | Reset password with token |
+| `POST` | `/api/auth/forgot-password` | 3/hr | Send password reset code |
+| `POST` | `/api/auth/reset-password` | 5/15min | Reset password with email and code or an existing link token |
 | `POST` | `/api/auth/claim` | 5/15min | Claim an invited account |
 | `GET` | `/api/auth/claim/validate` | 10/15min | Validate a claim/invite token |
 | `POST` | `/api/auth/verify-email` | 5/15min | Verify email with 6-digit code |
@@ -163,13 +163,13 @@ Returns `403` with `"email_not_verified"` if email verification is pending (comm
 ```json
 { "email": "user@example.com" }
 ```
-Always returns `200` with `{"message": "if that email exists, a reset link has been sent"}` (does not reveal email existence).
+A valid request receives the same response for eligible and unknown accounts. Eligible accounts receive an 8-digit code valid for 15 minutes. If the system email key or sender is missing, the endpoint returns `503` with `email_not_configured`.
 
 **POST /api/auth/reset-password** body:
 ```json
-{ "token": "hex-token", "password": "new-password" }
+{ "email": "user@example.com", "code": "01234567", "password": "new-password" }
 ```
-Revokes all existing sessions on success.
+Existing reset links can submit `token` in place of `email` and `code`. A successful reset consumes the credential and revokes all existing sessions.
 
 **POST /api/auth/claim** body:
 ```json

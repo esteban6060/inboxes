@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -55,6 +57,8 @@ type forgotPasswordRequest struct {
 }
 
 type resetPasswordRequest struct {
+	Email    string `json:"email"`
+	Code     string `json:"code"`
 	Token    string `json:"token"`
 	Password string `json:"password"`
 }
@@ -458,43 +462,51 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Self-hosted: early return if no system email key is available
-	if h.StripeKey == "" && !h.ResendSvc.HasSystemKey(ctx) {
+	if h.ResendSvc == nil || !h.ResendSvc.HasSystemKey(ctx) {
+		writeError(w, http.StatusServiceUnavailable, "email_not_configured")
+		return
+	}
+	from := h.ResendSvc.GetSystemFrom(ctx)
+	if from == "" {
 		writeError(w, http.StatusServiceUnavailable, "email_not_configured")
 		return
 	}
 
-	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
-	resetToken := hex.EncodeToString(tokenBytes)
-	expires := time.Now().Add(1 * time.Hour)
-
-	rowsAffected, err := h.Store.SetResetToken(ctx, req.Email, resetToken, expires)
-	if err != nil || rowsAffected == 0 {
-		// Don't reveal whether email exists
-		writeJSON(w, http.StatusOK, map[string]string{"message": "if that email exists, a reset link has been sent"})
+	number, err := rand.Int(rand.Reader, big.NewInt(100000000))
+	if err != nil {
+		slog.Error("auth: failed to generate password reset code", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "password reset is temporarily unavailable")
 		return
 	}
-
-	slog.Info("auth: password reset requested", "email", req.Email)
-
-	// Send reset email via system Resend key
-	resetURL := h.AppURL + "/reset-password?token=" + resetToken
-	from := h.ResendSvc.GetSystemFrom(ctx)
-	if from == "" {
-		from = "noreply@inboxes.net"
-		slog.Warn("auth: using hardcoded noreply fallback — configure system email in settings")
+	code := fmt.Sprintf("%08d", number.Int64())
+	token := h.passwordResetCodeToken(req.Email, code)
+	rowsAffected, err := h.Store.SetResetToken(ctx, req.Email, token, time.Now().Add(15*time.Minute))
+	if err != nil {
+		slog.Error("auth: failed to store password reset code", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "password reset is temporarily unavailable")
+		return
 	}
-	if _, err := h.ResendSvc.SystemFetch(ctx, "POST", "/emails", map[string]interface{}{
-		"from":    from,
-		"to":      []string{req.Email},
-		"subject": "Reset your password",
-		"html":    "<p>Click <a href=\"" + resetURL + "\">here</a> to reset your password. This link expires in 1 hour.</p>",
-	}); err != nil {
-		slog.Error("auth: failed to send password reset email", "email", req.Email, "error", err)
+	if rowsAffected > 0 {
+		if _, err := h.ResendSvc.SystemFetch(ctx, "POST", "/emails", map[string]interface{}{
+			"from":    from,
+			"to":      []string{req.Email},
+			"subject": "Your Inboxes password reset code",
+			"text":    "Your Inboxes password reset code is " + code + ". It expires in 15 minutes. If you did not request this code, you can ignore this email.",
+		}); err != nil {
+			slog.Error("auth: failed to send password reset email", "error", err)
+		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "if that email exists, a reset link has been sent"})
+	// Keep the response the same for unknown accounts and delivery failures.
+	writeJSON(w, http.StatusOK, map[string]string{"message": "if that email exists, check it for a password reset code"})
+}
+
+// Bind the code to the account email and server secret before storage so a
+// database leak alone cannot be used to brute-force the code offline.
+func (h *AuthHandler) passwordResetCodeToken(email, code string) string {
+	mac := hmac.New(sha256.New, []byte(h.Secret))
+	fmt.Fprintf(mac, "password-reset-code\x00%s\x00%s", email, code)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
@@ -502,6 +514,15 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	if req.Email != "" || req.Code != "" {
+		email := normalizeEmail(req.Email)
+		if req.Token != "" || validateEmail(email) != nil || len(req.Code) != 8 ||
+			strings.ContainsFunc(req.Code, func(r rune) bool { return r < '0' || r > '9' }) {
+			writeError(w, http.StatusBadRequest, "a valid email and an 8-digit code are required")
+			return
+		}
+		req.Token = h.passwordResetCodeToken(email, req.Code)
 	}
 	if req.Token == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "token and password are required")
@@ -521,7 +542,11 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	resetUserIDs, err := h.Store.ResetPasswordMemberships(ctx, string(hash), req.Token)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		if req.Code != "" {
+			writeError(w, http.StatusBadRequest, "invalid or expired reset code")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		}
 		return
 	}
 

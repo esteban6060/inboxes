@@ -87,8 +87,9 @@ func RateLimitByBodyField(rdb *redis.Client, fieldName string, limit int, window
 				return
 			}
 
-			val, ok := body[fieldName].(string)
-			if !ok || val == "" {
+			val, _ := body[fieldName].(string)
+			val = strings.TrimSpace(val)
+			if val == "" {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -148,7 +148,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 	r.With(middleware.RateLimitByIP(rdb, 5, 1*60*60)).Post("/api/auth/signup", auth.Signup)
 	r.With(middleware.RateLimitByIP(rdb, 10, 15*60), middleware.RateLimitByBodyField(rdb, "email", 10, 15*60)).Post("/api/auth/login", auth.Login)
 	r.With(middleware.RateLimitByIP(rdb, 3, 1*60*60), middleware.RateLimitByBodyField(rdb, "email", 3, 1*60*60)).Post("/api/auth/forgot-password", auth.ForgotPassword)
-	r.With(middleware.RateLimitByIP(rdb, 5, 15*60)).Post("/api/auth/reset-password", auth.ResetPassword)
+	r.With(middleware.RateLimitByIP(rdb, 5, 15*60), middleware.RateLimitByBodyField(rdb, "email", 5, 15*60)).Post("/api/auth/reset-password", auth.ResetPassword)
 	r.With(middleware.RateLimitByIP(rdb, 5, 15*60)).Post("/api/auth/claim", auth.Claim)
 	r.With(middleware.RateLimitByIP(rdb, 10, 15*60)).Get("/api/auth/claim/validate", auth.ValidateClaim)
 	r.With(middleware.RateLimitByIP(rdb, 5, 15*60), middleware.RateLimitByBodyField(rdb, "email", 5, 15*60)).Post("/api/auth/verify-email", auth.VerifyEmail)
