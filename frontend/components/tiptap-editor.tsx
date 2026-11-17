@@ -49,6 +49,7 @@ interface TipTapEditorProps {
    */
   onEscape?: () => boolean;
   onUploadImage?: (file: File) => Promise<{ id: string; filename: string }>;
+  onUploadAttachment?: (file: File) => Promise<void>;
 }
 
 export function TipTapEditor({
@@ -63,6 +64,7 @@ export function TipTapEditor({
   stripTracking = true,
   onEscape,
   onUploadImage,
+  onUploadAttachment,
 }: TipTapEditorProps) {
   const [emojiState, setEmojiState] = useState<EmojiSuggestionState>({
     active: false,
@@ -165,6 +167,11 @@ export function TipTapEditor({
   popupActiveRef.current = popupActive;
 
   const uploadSelectedImage = async (file: File) => {
+    if (onUploadAttachment && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+      imagePositionRef.current = null;
+      await onUploadAttachment(file);
+      return;
+    }
     if (!editor || !onUploadImage) return;
     const position = imagePositionRef.current ?? editor.state.selection.from;
     imagePositionRef.current = null;
@@ -274,9 +281,11 @@ export function TipTapEditor({
 
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 border-t px-1 py-1 bg-muted/30 shrink-0 overflow-x-auto">
-        {onUploadImage && <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(event) => {
+        {onUploadImage && <input ref={imageInputRef} type="file" accept={onUploadAttachment ? "image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf" : "image/png,image/jpeg,image/gif,image/webp"} aria-label="Choose an image or PDF" className="hidden" onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void uploadSelectedImage(file);
+          if (file) void uploadSelectedImage(file).catch(() => {
+            // The composer displays upload errors.
+          });
           event.target.value = "";
         }} />}
         {toolbarLeft}
@@ -346,7 +355,7 @@ export function TipTapEditor({
           <ToolbarButton active={false} onClick={() => {
             imagePositionRef.current = editor.state.selection.from;
             imageInputRef.current?.click();
-          }} title="Insert image at cursor">
+          }} title={onUploadAttachment ? "Add image or PDF" : "Insert image at cursor"}>
             <ImagePlus className="h-3.5 w-3.5" />
           </ToolbarButton>
           {editor.isActive("inlineImage") && <>

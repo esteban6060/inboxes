@@ -315,7 +315,10 @@ export function FloatingComposeWindow() {
   ]);
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
+    await uploadAttachments(Array.from(e.target.files || []));
+  }
+
+  async function uploadAttachments(files: File[]) {
     if (files.length === 0) return;
 
     // Validate every file before any upload starts
@@ -877,7 +880,7 @@ export function FloatingComposeWindow() {
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             className="p-1.5 rounded hover:bg-muted text-muted-foreground"
-            aria-label="Attach file"
+            aria-label="Attach files, PDFs, or images"
           >
             {uploading ? <Spinner className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
           </button>
@@ -978,6 +981,7 @@ export function FloatingComposeWindow() {
           <TipTapEditor
             content={bodyHtml}
             onUploadImage={handleInlineImageUpload}
+            onUploadAttachment={(file) => uploadAttachments([file])}
             onChange={(html, plain) => {
               setBodyHtml(html);
               setBodyPlain(plain);
@@ -1138,6 +1142,7 @@ export function FloatingComposeWindow() {
           <TipTapEditor
             content={bodyHtml}
             onUploadImage={handleInlineImageUpload}
+            onUploadAttachment={(file) => uploadAttachments([file])}
             onChange={(html, plain) => {
               setBodyHtml(html);
               setBodyPlain(plain);
@@ -1167,7 +1172,8 @@ export function FloatingComposeWindow() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
                   className="p-1.5 rounded hover:bg-muted text-muted-foreground transition-colors mx-0.5"
-                  title="Attach file"
+                  title="Attach files, PDFs, or images"
+                  aria-label="Attach files, PDFs, or images"
                 >
                   {uploading ? <Spinner className="h-3.5 w-3.5" /> : <Paperclip className="h-3.5 w-3.5" />}
                 </button>
@@ -1192,6 +1198,7 @@ export function FloatingComposeWindow() {
     <input
       ref={fileInputRef}
       type="file"
+      aria-label="Choose attachments"
       multiple
       className="hidden"
       onChange={handleFileUpload}
