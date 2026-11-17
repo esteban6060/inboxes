@@ -40,6 +40,9 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loginCodeOnly, setLoginCodeOnly] = useState<boolean>();
+  const [codeRequested, setCodeRequested] = useState(false);
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSignup, setShowSignup] = useState(true);
@@ -69,26 +72,34 @@ function LoginForm() {
 
   useEffect(() => {
     api
-      .get<{ commercial: boolean; registration_enabled?: boolean }>("/api/setup/status")
+      .get<{ commercial: boolean; registration_enabled?: boolean; login_code_only?: boolean }>("/api/config")
       .then((res) => {
         setShowSignup(res.registration_enabled ?? res.commercial);
+        setLoginCodeOnly(res.login_code_only ?? false);
       })
       .catch(() => {
-        // If status check fails, keep signup link visible
+        setError("Could not load sign-in settings. Reload the page to try again.");
       });
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loginCodeOnly === undefined) return;
     setError("");
     setLoading(true);
 
     try {
+      if (loginCodeOnly && !codeRequested) {
+        await api.post("/api/auth/login-code/request", { email });
+        setCodeRequested(true);
+        return;
+      }
+
       const res = await api.post<LoginResponse>(
-        "/api/auth/login",
+        loginCodeOnly ? "/api/auth/login-code/verify" : "/api/auth/login",
         {
           email,
-          password,
+          ...(loginCodeOnly ? { code } : { password }),
           ...(selectedOrganizationId ? { org_id: selectedOrganizationId } : {}),
         }
       );
@@ -121,10 +132,16 @@ function LoginForm() {
   }
 
   return (
-    <Card>
+    <Card translate="no">
       <CardHeader>
         <CardTitle>Welcome back</CardTitle>
-        <CardDescription>Sign in to your Inboxes account</CardDescription>
+        <CardDescription>
+          {loginCodeOnly
+            ? codeRequested
+              ? "If this email has access, you’ll receive an 8-digit code."
+              : "Enter your account email to receive a sign-in code."
+            : "Sign in to your Inboxes account"}
+        </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
@@ -140,32 +157,72 @@ function LoginForm() {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
+              disabled={loading || codeRequested || loginCodeOnly === undefined}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
             />
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label htmlFor="password" className="text-sm font-medium">
-                Password
-              </label>
-              <Link
-                href="/forgot-password"
-                className="text-sm text-muted-foreground hover:text-primary"
-              >
-                Forgot password?
-              </Link>
+          {loginCodeOnly === false && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="text-sm font-medium">
+                  Password
+                </label>
+                <Link
+                  href="/forgot-password"
+                  className="text-sm text-muted-foreground hover:text-primary"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
+          )}
+          {codeRequested && (
+            <div className="space-y-2">
+              {organizations.length === 0 && (
+                <>
+                  <label htmlFor="code" className="text-sm font-medium">
+                    Sign-in code
+                  </label>
+                  <Input
+                    id="code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{8}"
+                    maxLength={8}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    required
+                  />
+                </>
+              )}
+              <button
+                type="button"
+                className="text-sm text-primary hover:underline"
+                disabled={loading}
+                onClick={() => {
+                  setCodeRequested(false);
+                  setCode("");
+                  setError("");
+                  setOrganizations([]);
+                  setSelectedOrganizationId("");
+                }}
+              >
+                Start over
+              </button>
+            </div>
+          )}
           {organizations.length > 0 && (
             <div className="space-y-2">
               <label htmlFor="organization" className="text-sm font-medium">
@@ -193,10 +250,10 @@ function LoginForm() {
         <CardFooter className="flex flex-col space-y-4">
           <Button
             className="w-full"
-            disabled={loading || (organizations.length > 0 && !selectedOrganizationId)}
+            disabled={loading || loginCodeOnly === undefined || (organizations.length > 0 && !selectedOrganizationId)}
           >
             {loading ? <Spinner className="mr-2" /> : null}
-            {organizations.length > 0 ? "Continue" : "Sign in"}
+            {organizations.length > 0 ? "Continue" : loginCodeOnly && !codeRequested ? "Send code" : "Sign in"}
           </Button>
           {showSignup && (
             <p className="text-sm text-muted-foreground text-center">

@@ -28,6 +28,7 @@ type Config struct {
 	StripePriceID                string
 	StripeWebhookSecret          string
 	WorkspaceRegistrationEnabled bool
+	LoginCodeOnly                bool
 	EventCatchupMaxAge           time.Duration
 	AppCtx                       context.Context
 	// MCP is the agent endpoint. When set, the router mounts /mcp plus the
@@ -56,7 +57,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 	r.Use(chiMiddleware.Compress(5))
 
 	st := store.NewPgStore(db)
-	auth := &handler.AuthHandler{Store: st, RDB: rdb, Secret: secret, AppURL: appURL, ResendSvc: resendSvc, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled}
+	auth := &handler.AuthHandler{Store: st, RDB: rdb, Secret: secret, AppURL: appURL, ResendSvc: resendSvc, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled, LoginCodeOnly: cfg.LoginCodeOnly}
 	setup := &handler.SetupHandler{Store: st, EncSvc: encSvc, ResendSvc: resendSvc, Secret: secret, AppURL: appURL, StripeKey: stripeKey, WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled}
 	threads := &handler.ThreadHandler{Store: st, Bus: bus}
 	emails := &handler.EmailHandler{Store: st, ResendSvc: resendSvc, Bus: bus, RDB: rdb, AppURL: appURL}
@@ -136,6 +137,7 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 			"ws_url":               wsURL,
 			"commercial":           stripeKey != "",
 			"registration_enabled": registrationEnabled,
+			"login_code_only":      cfg.LoginCodeOnly,
 		})
 	})
 
@@ -147,6 +149,10 @@ func New(db *pgxpool.Pool, rdb *redis.Client, encSvc *service.EncryptionService,
 	// Public auth (always rate-limited)
 	r.With(middleware.RateLimitByIP(rdb, 5, 1*60*60)).Post("/api/auth/signup", auth.Signup)
 	r.With(middleware.RateLimitByIP(rdb, 10, 15*60), middleware.RateLimitByBodyField(rdb, "email", 10, 15*60)).Post("/api/auth/login", auth.Login)
+	if cfg.LoginCodeOnly {
+		r.With(middleware.RateLimitByIP(rdb, 10, 15*60), middleware.RateLimitByBodyField(rdb, "email", 3, 15*60)).Post("/api/auth/login-code/request", auth.RequestLoginCode)
+		r.With(middleware.RateLimitByIP(rdb, 20, 15*60), middleware.RateLimitByBodyField(rdb, "email", 10, 15*60)).Post("/api/auth/login-code/verify", auth.VerifyLoginCode)
+	}
 	r.With(middleware.RateLimitByIP(rdb, 3, 1*60*60), middleware.RateLimitByBodyField(rdb, "email", 3, 1*60*60)).Post("/api/auth/forgot-password", auth.ForgotPassword)
 	r.With(middleware.RateLimitByIP(rdb, 5, 15*60), middleware.RateLimitByBodyField(rdb, "email", 5, 15*60)).Post("/api/auth/reset-password", auth.ResetPassword)
 	r.With(middleware.RateLimitByIP(rdb, 5, 15*60)).Post("/api/auth/claim", auth.Claim)

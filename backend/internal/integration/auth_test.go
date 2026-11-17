@@ -752,3 +752,95 @@ func TestAuth_InviteSameEmailTwice(t *testing.T) {
 		t.Errorf("InsertInvitedUser (second): unexpected error: %v", err)
 	}
 }
+
+func TestAuth_LoginCodeSelectsWorkspaceAndCanOnlyBeUsedOnce(t *testing.T) {
+	h := newAuthHandler()
+	h.LoginCodeOnly = true
+	h.WorkspaceRegistrationEnabled = true
+	const email = "integ-login-code@example.com"
+	firstOrgID, _ := seedOrg(t, "Original Workspace", email, "Password1")
+	t.Cleanup(func() { cleanupOrg(t, firstOrgID) })
+	secondOrgID, _, err := testStore.CreateOrgForAccount(context.Background(), "Second Workspace", email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanupOrg(t, secondOrgID) })
+
+	delivered := make(chan string, 2)
+	resend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			To   []string `json:"to"`
+			Text string   `json:"text"`
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/emails" ||
+			json.NewDecoder(r.Body).Decode(&payload) != nil || len(payload.To) != 1 || payload.To[0] != email {
+			t.Error("unexpected Resend request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		delivered <- payload.Text
+		w.Write([]byte(`{"id":"test-login-email"}`))
+	}))
+	defer resend.Close()
+	defer service.SetResendBaseURLForTest(resend.URL)()
+	h.ResendSvc = service.NewResendService(testEncSvc, testPool, "re_test", "noreply@example.com")
+
+	post := func(handle http.HandlerFunc, payload map[string]string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(payload)
+		w := httptest.NewRecorder()
+		handle(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body))))
+		return w
+	}
+	password := map[string]string{"email": email, "password": "Password1", "org_name": "Unexpected Workspace"}
+	if w := post(h.Login, password); w.Code != http.StatusForbidden || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("password login issued access: %d", w.Code)
+	}
+	if w := post(h.Signup, password); w.Code != http.StatusCreated || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("signup with existing password issued access: %d", w.Code)
+	}
+
+	known := post(h.RequestLoginCode, map[string]string{"email": " INTEG-LOGIN-CODE@example.com "})
+	unknown := post(h.RequestLoginCode, map[string]string{"email": "missing-login-code@example.com"})
+	if known.Code != http.StatusOK || unknown.Code != known.Code || unknown.Body.String() != known.Body.String() || len(delivered) != 1 {
+		t.Fatalf("code request: known %d, unknown %d, sent %d", known.Code, unknown.Code, len(delivered))
+	}
+	code := regexp.MustCompile(`\b[0-9]{8}\b`).FindString(<-delivered)
+	if code == "" || strings.Contains(known.Body.String(), code) {
+		t.Fatal("the code must appear only in the email")
+	}
+	wrongCode := "00000000"
+	if code == wrongCode {
+		wrongCode = "11111111"
+	}
+	if w := post(h.VerifyLoginCode, map[string]string{"email": email, "code": wrongCode}); w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong code accepted: %d", w.Code)
+	}
+	selection := post(h.VerifyLoginCode, map[string]string{"email": email, "code": code})
+	if selection.Code != http.StatusOK || len(selection.Result().Cookies()) != 0 ||
+		!strings.Contains(selection.Body.String(), firstOrgID) || !strings.Contains(selection.Body.String(), secondOrgID) {
+		t.Fatalf("workspace selection: %d %s", selection.Code, selection.Body.String())
+	}
+
+	body := map[string]string{"email": email, "code": code, "org_id": secondOrgID}
+	results := make(chan *httptest.ResponseRecorder, 2)
+	for i := 0; i < 2; i++ {
+		go func() { results <- post(h.VerifyLoginCode, body) }()
+	}
+	successes := 0
+	for i := 0; i < 2; i++ {
+		w := <-results
+		switch w.Code {
+		case http.StatusOK:
+			successes++
+			if len(w.Result().Cookies()) == 0 || !strings.Contains(w.Body.String(), secondOrgID) {
+				t.Fatalf("missing authenticated session for selected workspace: %s", w.Body.String())
+			}
+		case http.StatusUnauthorized:
+		default:
+			t.Fatalf("unexpected verification response: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected one session from concurrent code attempts, got %d", successes)
+	}
+}

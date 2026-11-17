@@ -28,6 +28,7 @@ type Config struct {
 
 	// Workspace registration (open by default for self-hosted instances)
 	WorkspaceRegistrationEnabled bool
+	LoginCodeOnly                bool
 
 	// System email sender (required in commercial mode)
 	SystemFromAddress string
@@ -56,13 +57,16 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	appURL := getEnv("APP_URL", "http://localhost:3000")
+	// The managed Inboxes deployment uses email codes for sign-in.
+	loginCodeOnly := strings.TrimRight(appURL, "/") == "https://correos.atlanticlegalgroup.org"
 	cfg := &Config{
 		DatabaseURL:     getEnv("DATABASE_URL", "postgres://inboxes:inboxes@localhost:5432/inboxes?sslmode=disable"),
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
 		EncryptionKey:   os.Getenv("ENCRYPTION_KEY"),
 		ResendSystemKey: os.Getenv("RESEND_SYSTEM_API_KEY"),
 		SessionSecret:   os.Getenv("SESSION_SECRET"),
-		AppURL:          getEnv("APP_URL", "http://localhost:3000"),
+		AppURL:          appURL,
 		PublicURL:       getEnv("PUBLIC_URL", "http://localhost:8080"),
 		APIPort:         getEnv("API_PORT", "8080"),
 
@@ -70,6 +74,7 @@ func Load() (*Config, error) {
 		StripeWebhookSecret:          os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		StripePriceID:                os.Getenv("STRIPE_PRICE_ID"),
 		WorkspaceRegistrationEnabled: getEnvBool("WORKSPACE_REGISTRATION_ENABLED", true),
+		LoginCodeOnly:                getEnvBool("LOGIN_CODE_ONLY", loginCodeOnly),
 
 		SystemFromAddress: os.Getenv("SYSTEM_FROM_ADDRESS"),
 

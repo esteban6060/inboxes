@@ -29,6 +29,7 @@ type AuthHandler struct {
 	ResendSvc                    *service.ResendService
 	StripeKey                    string
 	WorkspaceRegistrationEnabled bool
+	LoginCodeOnly                bool
 }
 
 // dummyHash is used for constant-time comparison when user is not found,
@@ -131,7 +132,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(existing) > 0 {
 			passwordHash := existing[0].PasswordHash
-			if passwordHash == "" || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+			if h.LoginCodeOnly || passwordHash == "" || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
 				h.respondExistingAccountSignup(ctx, w, req.Email)
 				return
 			}
@@ -282,6 +283,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.LoginCodeOnly {
+		writeJSON(w, http.StatusCreated, map[string]bool{"requires_sign_in": true})
+		return
+	}
+
 	token, _, err := middleware.GenerateToken(h.Secret, userID, orgID, "admin")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
@@ -303,6 +309,10 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 // respondExistingAccountSignup keeps public signup responses consistent for
 // unknown emails and existing accounts whose credentials are not valid.
 func (h *AuthHandler) respondExistingAccountSignup(ctx context.Context, w http.ResponseWriter, email string) {
+	if h.LoginCodeOnly {
+		writeJSON(w, http.StatusCreated, map[string]bool{"requires_sign_in": true})
+		return
+	}
 	if h.ResendSvc != nil {
 		from := h.ResendSvc.GetSystemFrom(ctx)
 		if from == "" {
@@ -322,6 +332,10 @@ func (h *AuthHandler) respondExistingAccountSignup(ctx context.Context, w http.R
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if h.LoginCodeOnly {
+		writeError(w, http.StatusForbidden, "sign in with an email code")
+		return
+	}
 	var req loginRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -370,26 +384,26 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	active := make([]store.LoginMembership, 0, len(memberships))
+	h.completeLogin(w, r, req.Email, activeLoginMemberships(memberships, req.OrgID))
+}
+
+func activeLoginMemberships(memberships []store.LoginMembership, orgID string) []store.LoginMembership {
+	var active []store.LoginMembership
 	for _, membership := range memberships {
-		if membership.Status == "active" {
+		if membership.Status == "active" && (orgID == "" || membership.OrgID == orgID) {
 			active = append(active, membership)
 		}
 	}
-	if req.OrgID != "" {
-		selected := active[:0]
-		for _, membership := range active {
-			if membership.OrgID == req.OrgID {
-				selected = append(selected, membership)
-			}
-		}
-		active = selected
-	}
+	return active
+}
+
+func (h *AuthHandler) completeLogin(w http.ResponseWriter, r *http.Request, email string, active []store.LoginMembership) {
 	if len(active) == 0 {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	if req.OrgID == "" && len(active) > 1 {
+
+	if len(active) > 1 {
 		organizations := make([]map[string]string, 0, len(active))
 		for _, membership := range active {
 			organizations = append(organizations, map[string]string{
@@ -414,15 +428,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Track session
 	loginBlacklist := service.NewTokenBlacklist(h.RDB)
-	loginBlacklist.RegisterSession(ctx, userID, jti)
+	loginBlacklist.RegisterSession(r.Context(), userID, jti)
 
-	slog.Info("auth: login", "email", req.Email)
+	slog.Info("auth: login", "email", email)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user": map[string]string{
 			"id":     userID,
 			"org_id": orgID,
-			"email":  req.Email,
+			"email":  email,
 			"name":   name,
 			"role":   role,
 		},

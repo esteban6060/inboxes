@@ -33,6 +33,7 @@ const STEPS = [
 
 interface SignupResponse {
   requires_verification?: boolean;
+  requires_sign_in?: boolean;
   email?: string;
   user?: { id: string; org_id: string; email: string; name: string; role: string };
   onboarding_completed?: boolean;
@@ -171,7 +172,9 @@ export default function SignupPage() {
             password,
           });
 
-      if (response.requires_verification) {
+      if (response.requires_sign_in) {
+        router.push("/login");
+      } else if (response.requires_verification) {
         sessionStorage.setItem("verify-email", response.email || email.trim());
         router.push("/verify-email");
       } else if (isAuthenticated) {

@@ -59,6 +59,7 @@ services:
       SYSTEM_FROM_ADDRESS: ${SYSTEM_FROM_ADDRESS:-}
       # ── Optional public signup/workspace creation for self-hosted ──
       WORKSPACE_REGISTRATION_ENABLED: ${WORKSPACE_REGISTRATION_ENABLED:-true}
+      LOGIN_CODE_ONLY: ${LOGIN_CODE_ONLY:-}
       # ── Workers ──
       TRASH_COLLECTOR_ENABLED: ${TRASH_COLLECTOR_ENABLED:-false}
       EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-90}

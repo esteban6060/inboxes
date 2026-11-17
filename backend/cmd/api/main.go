@@ -149,6 +149,7 @@ func main() {
 		StripePriceID:                cfg.StripePriceID,
 		StripeWebhookSecret:          cfg.StripeWebhookSecret,
 		WorkspaceRegistrationEnabled: cfg.WorkspaceRegistrationEnabled,
+		LoginCodeOnly:                cfg.LoginCodeOnly,
 		EventCatchupMaxAge:           cfg.EventCatchupMaxAge,
 		AppCtx:                       ctx,
 		MCP:                          mcpSrv,
